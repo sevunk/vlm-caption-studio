@@ -5,6 +5,8 @@ Features:
 - Thread-safe model loading (`threading.Lock()`)
 - Optimal T4 server flags (`-ngl 99 -c 8192 -np 1 -cb -ub 512 -b 1024 --cache-type-k q8_0 --cache-type-v q8_0 --flash-attn on --jinja`)
 - Per-Model Prompt Routing (`system_and_user`, `joycaption_mode`, `user_merged`)
+- Per-Model Stop Tokens & Token Headroom (`api_token_headroom`) so `<think>` blocks never starve caption tokens
+- Auto-Retry with expanded token headroom if a hybrid model ever exhausts tokens during `<think>`
 - Dynamic Qwen3.5 thinking toggle per API call
 - Hybrid PixAI Tagger v0.9 integration (Grounding Prompt, Prepend Tags, Append Tags)
 - Global Subject / Concept Hint injection
@@ -26,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:
     from huggingface_hub import hf_hub_download, list_repo_files
@@ -268,9 +270,9 @@ def ensure_llama_server(model_key: str) -> Tuple[str, str]:
                 "--host", "127.0.0.1",
                 "--port", str(SERVER_PORT),
             ]
-            for extra_flag in spec.get("server_flags", ["--jinja"]):
-                if extra_flag not in cmd:
-                    cmd.append(extra_flag)
+            # Append per-model server flags (e.g. ["--jinja", "--chat-template-kwargs", '{"enable_thinking":false}'])
+            server_flags = spec.get("server_flags", ["--jinja"])
+            cmd.extend(server_flags)
 
             log_f = open(SERVER_LOG_FILE, "w", encoding="utf-8", errors="replace")
             proc = subprocess.Popen(
@@ -315,9 +317,13 @@ def ensure_llama_server(model_key: str) -> Tuple[str, str]:
 
 
 def image_to_data_uri(img_path: str, max_side: int = 1280) -> str:
-    """Resize image in memory (without altering disk file) and encode as JPEG base64 Data URI."""
+    """Apply EXIF transpose, resize image in memory (without altering disk file), and encode as JPEG base64 Data URI."""
     with Image.open(img_path) as im:
-        if im.mode in ("RGBA", "P"):
+        try:
+            im = ImageOps.exif_transpose(im)
+        except Exception:
+            pass
+        if im.mode in ("RGBA", "P", "LA"):
             bg = Image.new("RGB", im.size, (255, 255, 255))
             rgba = im.convert("RGBA")
             bg.paste(rgba, mask=rgba.split()[3])
@@ -341,6 +347,7 @@ def build_routed_messages(
     image_data_uri: Optional[str] = None,
     subject_hint: str = "",
     hybrid_tag_context: str = "",
+    target_max_tokens: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
     Build OpenAI-compatible multimodal `messages` list tailored to each VLM's chat template:
@@ -355,6 +362,12 @@ def build_routed_messages(
     clean_usr = (usr_prompt or "Describe this image in detail.").strip()
 
     extra_context_blocks = []
+    if target_max_tokens and int(target_max_tokens) > 0:
+        target_words = max(20, int(round(int(target_max_tokens) * 0.72)))
+        extra_context_blocks.append(
+            f"[Length & Completeness Rule: Keep the final output within approximately {target_words} words "
+            f"(~{int(target_max_tokens)} tokens) and ALWAYS finish with a complete, grammatically closed sentence.]"
+        )
     if subject_hint and subject_hint.strip():
         extra_context_blocks.append(
             f"[Global Subject / Concept Context — Must be respected in the caption: {subject_hint.strip()}]"
@@ -443,7 +456,9 @@ def _run_mtmd_cli_fallback(
         errors="replace",
         timeout=240,
     )
-    return clean_vlm_response(res.stdout, sys_prompt, usr_prompt)
+    return clean_vlm_response(
+        res.stdout, sys_prompt, usr_prompt, repair_dangling_sentence=True
+    )
 
 
 def run_vlm_caption_single(
@@ -465,8 +480,10 @@ def run_vlm_caption_single(
     """
     Execute single-image captioning or tagging:
     - If `model_key == PIXAI_TAGGER_KEY`, runs standalone ultra-fast PixAI Tagger v0.9.
-    - Otherwise runs VLM via `llama-server` (with optional Hybrid PixAI Tagger v0.9 assistance).
+    - Otherwise runs VLM via `llama-server` with per-model token headroom (`api_token_headroom`),
+      stop tokens, and automatic retry if an unclosed `<think>` block ever occurs.
     """
+    t0 = time.time()
     spec = get_model_spec(model_key)
 
     # 1. Standalone PixAI Tagger v0.9 Mode
@@ -487,6 +504,7 @@ def run_vlm_caption_single(
             "caption": cap,
             "words": stats["words"],
             "tokens": stats["tokens"],
+            "elapsed_sec": round(time.time() - t0, 2),
             "tagger_meta": tag_res,
         }
 
@@ -513,6 +531,8 @@ def run_vlm_caption_single(
     model_path, mmproj_path = ensure_llama_server(model_key)
     sampling = dict(spec.get("caption_sampling", {}))
     eff_temp = float(temperature) if temperature is not None else float(sampling.get("temperature", 0.3))
+    headroom = int(spec.get("api_token_headroom", 200))
+    api_max_tokens = max(int(max_tokens) + headroom, 512)
 
     data_uri = image_to_data_uri(img_path)
     messages = build_routed_messages(
@@ -522,37 +542,53 @@ def run_vlm_caption_single(
         image_data_uri=data_uri,
         subject_hint=subject_hint,
         hybrid_tag_context=hybrid_context_str,
+        target_max_tokens=int(max_tokens),
     )
 
     payload: Dict[str, Any] = {
         "messages": messages,
-        "max_tokens": int(max_tokens),
+        "max_tokens": api_max_tokens,
         "temperature": eff_temp,
         "top_p": float(sampling.get("top_p", 0.9)),
         "top_k": int(sampling.get("top_k", 40)),
         "repeat_penalty": float(sampling.get("repeat_penalty", 1.05)),
-        "chat_template_kwargs": {"enable_thinking": False},
-        "reasoning_format": "none",
     }
+    if spec.get("family") == "qwen35":
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    if spec.get("stop_tokens"):
+        payload["stop"] = list(spec["stop_tokens"])
     if "min_p" in sampling:
         payload["min_p"] = float(sampling["min_p"])
     if "presence_penalty" in sampling:
         payload["presence_penalty"] = float(sampling["presence_penalty"])
-    if "reasoning_budget" in sampling:
-        payload["reasoning_budget"] = int(sampling["reasoning_budget"])
 
     cleaned_caption = ""
     with _INFERENCE_LOCK:
         for attempt in range(2):
+            if attempt == 1:
+                # On retry (e.g. if a thinking model spent too many tokens thinking), expand budget to 1024
+                payload["max_tokens"] = max(api_max_tokens + 384, 1024)
             try:
                 r = requests.post(f"{SERVER_URL}/v1/chat/completions", json=payload, timeout=180)
                 if r.ok:
                     resp_json = r.json()
                     msg_obj = resp_json["choices"][0]["message"]
-                    raw_text = extract_message_text(msg_obj, allow_reasoning_fallback=True)
-                    cleaned_caption = clean_vlm_response(raw_text, sys_prompt, usr_prompt)
-                    if cleaned_caption:
+                    # Strictly disallow mid-thought reasoning_content fallback for dataset captions
+                    raw_text = extract_message_text(msg_obj, allow_reasoning_fallback=False)
+                    cleaned_caption = clean_vlm_response(
+                        raw_text,
+                        sys_prompt,
+                        usr_prompt,
+                        strip_meta_preamble=True,
+                        single_line=True,
+                        repair_dangling_sentence=True,
+                    )
+                    if cleaned_caption and len(cleaned_caption.split()) >= 5:
                         break
+                    print(
+                        f"[!] Percobaan {attempt + 1} pada {Path(img_path).name} menghasilkan output pendek/kosong, mengulang dengan kuota token ekstra...",
+                        flush=True,
+                    )
             except Exception as e:
                 print(f"[!] Request llama-server percobaan {attempt + 1} gagal ({e})", flush=True)
                 if attempt == 0:
@@ -563,7 +599,7 @@ def run_vlm_caption_single(
             print("[!] Menjalankan fallback llama-mtmd-cli...", flush=True)
             stop_llama_server()
             cleaned_caption = _run_mtmd_cli_fallback(
-                img_path, model_path, mmproj_path, sys_prompt, usr_prompt, int(max_tokens), eff_temp
+                img_path, model_path, mmproj_path, sys_prompt, usr_prompt, api_max_tokens, eff_temp
             )
 
     # 4. Merge Hybrid Tags if prepend/append/both was selected
@@ -580,6 +616,7 @@ def run_vlm_caption_single(
         "caption": cleaned_caption,
         "words": stats["words"],
         "tokens": stats["tokens"],
+        "elapsed_sec": round(time.time() - t0, 2),
         "tagger_meta": tag_res,
     }
 
@@ -599,6 +636,7 @@ def run_multimodal_chat(
     Preserves up to the 2 most recent images in conversation history so follow-up questions
     continue to see the image without overflowing the 8192 context window on Tesla T4.
     """
+    t0 = time.time()
     spec = get_model_spec(model_key)
     if spec.get("engine") == "pixai_tagger":
         model_key = DEFAULT_MODEL_KEY
@@ -648,15 +686,18 @@ def run_multimodal_chat(
     messages.append({"role": "user", "content": u_content})
 
     use_thinking = bool(enable_thinking and spec.get("family") == "qwen35")
+    headroom = int(spec.get("api_token_headroom", 256))
     payload: Dict[str, Any] = {
         "messages": messages,
-        "max_tokens": int(max_tokens),
+        "max_tokens": int(max_tokens) + headroom,
         "temperature": float(temperature),
-        "chat_template_kwargs": {"enable_thinking": use_thinking},
-        "reasoning_format": "deepseek" if use_thinking else "none",
     }
-    if not use_thinking:
-        payload["reasoning_budget"] = 0
+    if spec.get("family") == "qwen35":
+        payload["chat_template_kwargs"] = {"enable_thinking": use_thinking}
+        if use_thinking:
+            payload["reasoning_format"] = "deepseek"
+    if spec.get("stop_tokens"):
+        payload["stop"] = list(spec["stop_tokens"])
 
     with _INFERENCE_LOCK:
         try:
@@ -668,11 +709,14 @@ def run_multimodal_chat(
             cleaned_reply = clean_vlm_response(
                 raw_reply, strip_meta_preamble=False, single_line=False
             )
+            stats = estimate_token_count(cleaned_reply)
             return {
                 "ok": True,
                 "reply": cleaned_reply,
                 "thinking": thinking_trace,
                 "model_used": model_key,
+                "elapsed_sec": round(time.time() - t0, 2),
+                "tokens": stats["tokens"],
             }
         except Exception as e:
             return {
@@ -680,6 +724,8 @@ def run_multimodal_chat(
                 "reply": f"⚠️ Error saat menghubungi mesin VLM: {e}",
                 "thinking": "",
                 "model_used": model_key,
+                "elapsed_sec": round(time.time() - t0, 2),
+                "tokens": 0,
             }
 
 

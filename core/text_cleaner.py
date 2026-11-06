@@ -1,10 +1,10 @@
 """
 core/text_cleaner.py
-Anti-leak VLM output cleaner:
-1. Handles empty `content` with populated `reasoning_content` fallback.
-2. Strips closed `<think>...</think>` blocks.
-3. Strips unclosed/truncated `<think>...$` blocks when cut off by max_tokens.
-4. Strips ANSI escape sequences, special chat template tokens, and conversational meta-preambles.
+Anti-leak & Anti-truncation VLM output cleaner across all 7 VLM architectures:
+1. Strips closed `<think>...</think>` blocks.
+2. For captioning (`allow_reasoning_fallback=False`), never leaks unfinished `<think>` fragments; returns `""` if `<think>` was unclosed so caller can auto-retry with higher token budget.
+3. Strips ANSI escape sequences, special chat template tokens (`<|eot_id|>`, `<end_of_turn>`, `</s>`), and conversational meta-preambles.
+4. Strips trailing baked-in disclaimers and cleans unfinished dangling tails if cut off.
 5. Normalizes trigger words, commas, and provides word/token estimation.
 """
 
@@ -12,16 +12,20 @@ import re
 from typing import Any, Dict, Optional
 
 META_PREAMBLE_PATTERNS = [
-    r"^(?:here\s+is|here's)\s+(?:a|the|an|your)\s+(?:detailed\s+|uncensored\s+|concise\s+|fluent\s+)?(?:caption|description|prompt|tag\s+list)(?:\s+for\s+(?:the|this)\s+image)?\s*[:\-–—]\s*",
+    r"^(?:here\s+is|here's)\s+(?:a|the|an|your)\s+(?:detailed\s+|uncensored\s+|concise\s+|fluent\s+|single-paragraph\s+)?(?:caption|description|prompt|tag\s+list)(?:\s+for\s+(?:the|this)\s+image)?\s*[:\-–—]\s*",
     r"^(?:sure|certainly|of\s+course)[,!\.]?\s+(?:here\s+is|here's)\s+[^:\n]{1,60}:\s*",
     r"^(?:caption|description|prompt)\s*[:\-–—]\s*",
+]
+
+TRAILING_DISCLAIMER_PATTERNS = [
+    r"\s*(?:Note|Disclaimer|Please note)\s*:\s*This\s+is\s+(?:general\s+information|a\s+fictional|an\s+artistic).*$",
 ]
 
 
 def _extract_last_descriptive_paragraph(reasoning_text: str) -> str:
     """
-    Fallback extractor when a hybrid thinking model puts its response inside reasoning_content
-    and leaves content empty. Extracts the last substantial non-meta paragraph/sentence.
+    Used ONLY in chat mode (`allow_reasoning_fallback=True`) if a model puts its entire reply
+    inside `reasoning_content`. Never used for dataset captioning to prevent mid-thought fragments.
     """
     if not reasoning_text:
         return ""
@@ -34,10 +38,12 @@ def _extract_last_descriptive_paragraph(reasoning_text: str) -> str:
     return candidate
 
 
-def extract_message_text(message_obj: Dict[str, Any], allow_reasoning_fallback: bool = True) -> str:
+def extract_message_text(message_obj: Dict[str, Any], allow_reasoning_fallback: bool = False) -> str:
     """
     Safely extract text from an OpenAI-compatible `/v1/chat/completions` message object.
-    Handles both standard `content` and rare `reasoning_content` placement.
+    - When `allow_reasoning_fallback=False` (dataset captioning), if `content` only contains an unclosed
+      `<think>` block (meaning thinking exhausted `max_tokens`), returns `""` so the caller retries cleanly
+      rather than saving a broken mid-sentence fragment.
     """
     if not isinstance(message_obj, dict):
         return ""
@@ -45,19 +51,24 @@ def extract_message_text(message_obj: Dict[str, Any], allow_reasoning_fallback: 
     reasoning = (message_obj.get("reasoning_content") or "").strip()
 
     if content:
-        # Check if content only contains an unclosed <think> block and nothing else
-        stripped_think = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE)
-        stripped_think = re.sub(r"<think>.*$", "", stripped_think, flags=re.DOTALL | re.IGNORECASE).strip()
-        if stripped_think:
-            return content
-        if allow_reasoning_fallback:
-            inner = re.sub(r"^.*?<think>", "", content, flags=re.DOTALL | re.IGNORECASE)
-            return _extract_last_descriptive_paragraph(inner)
+        # Remove closed <think>...</think> blocks first
+        without_closed = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE).strip()
+        # Check if there is still an unclosed <think> block
+        if re.search(r"<think>", without_closed, flags=re.IGNORECASE):
+            before_unclosed = re.sub(r"<think>.*$", "", without_closed, flags=re.DOTALL | re.IGNORECASE).strip()
+            if before_unclosed:
+                return before_unclosed
+            if allow_reasoning_fallback:
+                inner = re.sub(r"^.*?<think>", "", without_closed, flags=re.DOTALL | re.IGNORECASE)
+                return _extract_last_descriptive_paragraph(inner)
+            return ""
+        if without_closed:
+            return without_closed
 
     if not content and reasoning and allow_reasoning_fallback:
         return _extract_last_descriptive_paragraph(reasoning)
 
-    return content
+    return ""
 
 
 def clean_vlm_response(
@@ -66,13 +77,14 @@ def clean_vlm_response(
     usr_prompt: str = "",
     strip_meta_preamble: bool = True,
     single_line: bool = True,
+    repair_dangling_sentence: bool = False,
 ) -> str:
     """
     Clean raw VLM output from llama-server or llama-mtmd-cli:
     - Removes closed <think>...</think> and unclosed <think>...$
-    - Removes ANSI escape codes and <|...|>, </s>, <end_of_turn> tokens
-    - Strips CLI prompt echo if present
-    - Optionally removes meta preambles ("Here is a caption for the image:")
+    - Removes ANSI escape codes and <|...|>, </s>, <end_of_turn>, <|eot_id|> tokens
+    - Strips CLI prompt echo and conversational meta preambles
+    - Optionally trims dangling incomplete sentence tails if a model hit a hard token wall
     """
     if not text:
         return ""
@@ -80,24 +92,18 @@ def clean_vlm_response(
     # 1. Remove closed <think>...</think> blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
 
-    # 2. Remove unclosed/truncated <think>...$ blocks (when cut off by max_tokens)
+    # 2. Remove unclosed/truncated <think>...$ blocks (never leak raw thinking into captions)
     if re.search(r"<think>", text, flags=re.IGNORECASE):
-        before_think = re.sub(r"<think>.*$", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-        if before_think:
-            text = before_think
-        else:
-            # If the entire text started with <think> and never closed, extract last paragraph
-            raw_inner = re.sub(r"^.*?<think>", "", text, flags=re.DOTALL | re.IGNORECASE)
-            text = _extract_last_descriptive_paragraph(raw_inner)
+        text = re.sub(r"<think>.*$", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
 
     # 3. Also strip stray </think> if model emitted closing tag without opening tag
     if "</think>" in text.lower():
         text = re.split(r"</think>", text, flags=re.IGNORECASE)[-1]
 
-    # 4. Strip ANSI escape sequences and special tokens
+    # 4. Strip ANSI escape sequences and special chat tokens across Qwen, Llama-3, and Gemma-3
     text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
     text = re.sub(r"<\|.*?\|>", "", text)
-    text = re.sub(r"</?(?:s|bos|eos|end_of_turn|start_of_turn)>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?(?:s|bos|eos|end_of_turn|start_of_turn|eot_id)>", "", text, flags=re.IGNORECASE)
 
     # 5. Strip CLI prompt echoes if any
     if usr_prompt and f"> {usr_prompt}" in text:
@@ -112,6 +118,8 @@ def clean_vlm_response(
     if strip_meta_preamble:
         for pat in META_PREAMBLE_PATTERNS:
             text = re.sub(pat, "", text, flags=re.IGNORECASE).strip()
+        for dpat in TRAILING_DISCLAIMER_PATTERNS:
+            text = re.sub(dpat, "", text, flags=re.IGNORECASE | re.DOTALL).strip()
 
     if single_line:
         text = " ".join(line.strip() for line in text.splitlines() if line.strip()).strip()
@@ -119,7 +127,53 @@ def clean_vlm_response(
         lines = [line.rstrip() for line in text.splitlines()]
         text = "\n".join(lines).strip()
 
+    # Unwrap outer quotes if the model wrapped the entire paragraph in quotes
+    if len(text) >= 2 and ((text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'"))):
+        text = text[1:-1].strip()
+
+    if repair_dangling_sentence and text:
+        text = _repair_unfinished_prose(text)
+
     return text
+
+
+def _repair_unfinished_prose(text: str) -> str:
+    """
+    If a natural-language paragraph caption (not a comma-separated booru tag list) was cut off
+    mid-sentence without terminal punctuation, trim back to the last complete sentence if sufficient
+    content exists, or cleanly strip trailing prepositions/articles/conjunctions and add a period.
+    """
+    s = text.strip()
+    if not s:
+        return s
+
+    # Detect comma-separated booru tag list (many commas, no periods) -> do not alter as prose
+    words = s.split()
+    comma_count = s.count(",")
+    if "." not in s and comma_count >= max(3, len(words) // 3):
+        return s.rstrip(", ")
+
+    # Already ends with valid terminal punctuation
+    if s[-1] in '.!?"\')]}':
+        return s
+
+    # If there are multiple sentences and the last tail is short (< 18 words), trim to the last period
+    last_dot = max(s.rfind("."), s.rfind("!"), s.rfind("?"))
+    if last_dot > len(s) * 0.45:
+        tail = s[last_dot + 1 :].strip()
+        if len(tail.split()) <= 18:
+            return s[: last_dot + 1].strip()
+
+    # Otherwise remove dangling conjunctions/prepositions/articles at the very end and close with a period
+    s = re.sub(
+        r"\s+\b(?:and|or|with|without|in|on|at|to|from|by|of|for|as|into|through|while|where|that|which|who|whose|its|their|his|her|a|an|the)\s*$",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    ).rstrip(",;:-–— ")
+    if s and s[-1] not in '.!?"\')]}':
+        s += "."
+    return s
 
 
 def process_caption_text(

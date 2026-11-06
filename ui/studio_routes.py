@@ -42,6 +42,7 @@ from core.dataset_manager import (
     scan_dataset_items,
     save_single_caption,
     delete_single_item,
+    delete_batch_items,
     process_uploaded_file_bytes,
     create_dataset_zip,
     run_bulk_caption_edit,
@@ -137,6 +138,20 @@ def register_studio_routes(app: FastAPI) -> None:
         res["items"] = items
         return res
 
+    @app.post("/studio_api/delete_batch")
+    async def route_delete_batch(req: Request):
+        data = await req.json()
+        folder = data.get("folder", DEFAULT_DATASET_DIR)
+        selected_paths = data.get("selected_img_paths")
+        delete_all = bool(data.get("delete_all", False))
+        res = await asyncio.to_thread(
+            delete_batch_items,
+            folder_path=folder,
+            selected_img_paths=selected_paths,
+            delete_all=delete_all,
+        )
+        return res
+
     @app.post("/studio_api/upload")
     async def route_upload(folder: str = Form(DEFAULT_DATASET_DIR), files: list[UploadFile] = File(...)):
         added_total = 0
@@ -182,7 +197,7 @@ def register_studio_routes(app: FastAPI) -> None:
     @app.post("/studio_api/unload_vram")
     async def route_unload_vram(req: Request):
         data = await req.json()
-        target = data.get("target", "all")  # vlm | tagger | all
+        target = data.get("target", "all")
         if target == "tagger":
             await asyncio.to_thread(unload_pixai_tagger)
             msg = "PixAI Tagger v0.9 berhasil di-unload dari VRAM."

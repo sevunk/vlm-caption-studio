@@ -1,14 +1,16 @@
 """
 core/dataset_manager.py
 Dataset & File Operations Manager:
+- Natural numeric sorting (`1.png, 2.png, 3.png ... 10.png`)
 - Fast dataset scanning with image dimensions (width/height, low-res <512px flag), word counts, and token estimates
 - Safe `.zip` extraction ignoring `__MACOSX`, `.DS_Store`, `._*`, hidden files, with collision-free flattening and Pillow verification
-- Single-item caption save & single-item image+txt deletion
+- Single-item caption save, single-item delete, & batch delete (`delete_selected` / `delete_all`)
 - Bulk Trigger Word & Find/Replace with Auto-Backup & Restore
 - Smart File Manager (9 Actions + One-Click Google Drive Export/Import)
 """
 
 import os
+import re
 import glob
 import time
 import shutil
@@ -42,6 +44,11 @@ BACKUP_DIR = _resolve_writable_default(
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
+def _natural_sort_key(text: str) -> List[Any]:
+    """Natural sort key so `3.png` comes before `10.png`."""
+    return [int(tok) if tok.isdigit() else tok.lower() for tok in re.split(r"(\d+)", text)]
+
+
 def verify_and_inspect_image(img_path: Path) -> Tuple[bool, int, int]:
     """
     Safely verify an image file with Pillow (`verify()` on first handle, dimensions on second handle).
@@ -59,7 +66,7 @@ def verify_and_inspect_image(img_path: Path) -> Tuple[bool, int, int]:
 
 def scan_dataset_items(folder_path: str = DEFAULT_DATASET_DIR) -> List[Dict[str, Any]]:
     """
-    Scan dataset directory and return sorted list of image items with caption, words,
+    Scan dataset directory and return naturally sorted list of image items with caption, words,
     estimated tokens, image dimensions (`width`, `height`), and quality flags (`low_res`).
     """
     folder = Path(folder_path)
@@ -71,7 +78,7 @@ def scan_dataset_items(folder_path: str = DEFAULT_DATASET_DIR) -> List[Dict[str,
 
     imgs = sorted(
         [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS and not p.name.startswith(".")],
-        key=lambda p: p.name.lower(),
+        key=lambda p: _natural_sort_key(p.name),
     )
 
     items: List[Dict[str, Any]] = []
@@ -134,6 +141,41 @@ def delete_single_item(img_path: str) -> Dict[str, Any]:
     return {"ok": removed, "deleted_path": str(p)}
 
 
+def delete_batch_items(
+    folder_path: str = DEFAULT_DATASET_DIR,
+    selected_img_paths: Optional[List[str]] = None,
+    delete_all: bool = False,
+) -> Dict[str, Any]:
+    """
+    Delete either all `selected_img_paths` or all images + `.txt` files inside `folder_path` (`delete_all=True`).
+    """
+    folder = Path(folder_path)
+    deleted_count = 0
+
+    if delete_all and folder.is_dir():
+        for p in list(folder.iterdir()):
+            if p.is_file() and (p.suffix.lower() in IMAGE_EXTENSIONS or p.suffix.lower() == ".txt"):
+                p.unlink(missing_ok=True)
+                if p.suffix.lower() in IMAGE_EXTENSIONS:
+                    deleted_count += 1
+    elif selected_img_paths:
+        for raw_p in selected_img_paths:
+            p = Path(raw_p)
+            txt_p = p.with_suffix(".txt")
+            if p.is_file():
+                p.unlink(missing_ok=True)
+                deleted_count += 1
+            if txt_p.is_file():
+                txt_p.unlink(missing_ok=True)
+
+    return {
+        "ok": True,
+        "deleted_count": deleted_count,
+        "msg": f"Berhasil menghapus {deleted_count} gambar beserta file caption (.txt)-nya.",
+        "items": scan_dataset_items(folder_path),
+    }
+
+
 def _is_junk_archive_member(member_name: str) -> bool:
     """Return True if a ZIP entry is a macOS/Linux hidden or metadata artifact."""
     norm = member_name.replace("\\", "/")
@@ -180,7 +222,7 @@ def safe_extract_zip_to_dataset(zip_path: Path, target_folder: Path) -> Tuple[in
         img_files = [p for p in all_files if p.suffix.lower() in IMAGE_EXTENSIONS]
         orphan_txts = set(p for p in all_files if p.suffix.lower() == ".txt")
 
-        for img_p in sorted(img_files, key=lambda x: str(x).lower()):
+        for img_p in sorted(img_files, key=lambda x: _natural_sort_key(str(x))):
             ok_img, _, _ = verify_and_inspect_image(img_p)
             companion_txt = img_p.with_suffix(".txt")
             if companion_txt in orphan_txts:
@@ -262,7 +304,7 @@ def create_dataset_zip(folder_path: str = DEFAULT_DATASET_DIR) -> Path:
     zip_dir = Path("/content") if os.access("/content", os.W_OK) else Path(tempfile.gettempdir())
     out_zip = zip_dir / f"dataset_labeled_{time.strftime('%Y%m%d_%H%M%S')}.zip"
     with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in sorted(files, key=lambda x: x.name.lower()):
+        for p in sorted(files, key=lambda x: _natural_sort_key(x.name)):
             zf.write(p, arcname=p.name)
     return out_zip
 
@@ -307,7 +349,7 @@ def run_bulk_caption_edit(
             if tp.exists():
                 target_txts.append(str(tp))
     else:
-        target_txts = sorted(glob.glob(os.path.join(folder_path, "*.txt")))
+        target_txts = sorted(glob.glob(os.path.join(folder_path, "*.txt")), key=_natural_sort_key)
 
     pos_code = "front" if pos == "front" else "back"
     mod_cnt = 0
@@ -451,7 +493,7 @@ def run_smart_file_manager(
         elif action == "Batch Rename":
             if os.path.isdir(source_path):
                 pairs, seen = [], set()
-                for f in sorted(os.listdir(source_path)):
+                for f in sorted(os.listdir(source_path), key=_natural_sort_key):
                     p = os.path.join(source_path, f)
                     if os.path.isfile(p):
                         b, e = os.path.splitext(f)

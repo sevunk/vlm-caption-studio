@@ -14,15 +14,15 @@ vlm-caption-studio/
 │   └── vlm_catalog.py                # Katalog 7 VLM GGUF + PixAI Tagger v0.9 + Per-Model Routing Adapters + 8 Style Presets
 ├── core/
 │   ├── __init__.py
-│   ├── llama_manager.py              # Manajer llama-server (-c 8192, -np 1, KV-cache q8_0, dynamic thinking, VRAM/Disk telemetry)
+│   ├── llama_manager.py              # Manajer llama-server (-c 8192, -np 1, KV-cache q8_0, anti-truncation headroom, VRAM/Disk telemetry)
 │   ├── tagger_manager.py             # PyTorch + timm EVA02-Large runner untuk PixAI Tagger v0.9 (Standalone & Hybrid VLM Assistant)
-│   ├── dataset_manager.py            # Safe ZIP extraction anti-__MACOSX, verifikasi Pillow, Bulk Trigger Edit, Google Drive Sync
-│   └── text_cleaner.py               # Anti-leak <think> cleaner (closed & truncated) + Dual Word/Token estimator
+│   ├── dataset_manager.py            # Natural sort, Safe ZIP extraction anti-__MACOSX, Batch Delete, Bulk Trigger Edit, Google Drive Sync
+│   └── text_cleaner.py               # Anti-leak <think> cleaner, unfinished sentence repair, & Dual Word/Token estimator
 ├── ui/
 │   ├── __init__.py
 │   ├── studio_routes.py              # Non-blocking FastAPI routes (asyncio.to_thread)
 │   └── templates/
-│       └── studio.html               # Single-Page Application (Pagination, Lightbox Split Editor, Persistent Vision Chat)
+│       └── studio.html               # Single-Page Application (Pagination, Lightbox Split Editor, Live Timers, Persistent Vision Chat)
 └── notebooks/
-    └── VLM_Caption_Studio_Colab.ipynb # Notebook Google Colab (2 Sel: Setup & Launch)
+    └── VLM_Caption_Studio_Colab.ipynb # Notebook Google Colab Tipis (2 Sel: Git Clone/Branch Setup & Launch)
 ```

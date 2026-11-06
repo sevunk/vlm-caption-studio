@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:
     from huggingface_hub import hf_hub_download
@@ -43,13 +43,17 @@ TAGGER_STATE: Dict[str, Any] = {
 
 
 def _pil_to_rgb_white_bg(image: Image.Image, bg_color: Tuple[int, int, int] = (255, 255, 255)) -> Image.Image:
-    """Composite RGBA/P transparency onto a clean white RGB background (exact PixAI/WD14 preprocessing)."""
+    """Apply EXIF orientation transpose and composite RGBA/P transparency onto a clean white RGB background."""
     image.load()
+    try:
+        image = ImageOps.exif_transpose(image)
+    except Exception:
+        pass
     if image.mode == "RGBA":
         bg = Image.new("RGB", image.size, bg_color)
         bg.paste(image, mask=image.split()[3])
         return bg
-    if image.mode == "P" or "transparency" in image.info:
+    if image.mode in ("P", "LA") or "transparency" in image.info:
         rgba = image.convert("RGBA")
         bg = Image.new("RGB", rgba.size, bg_color)
         bg.paste(rgba, mask=rgba.split()[3])
@@ -86,7 +90,6 @@ def _download_tagger_file(filename: str) -> Path:
             except Exception as e:
                 print(f"[!] Info unduhan '{filename}' dari '{repo_id}' ({e}), mencoba mirror cadangan...", flush=True)
 
-    # Direct wget fallback from ungated mirror
     fallback_url = f"https://huggingface.co/{spec['fallback_repo']}/resolve/main/{filename}"
     print(f"[+] Mengunduh via wget fallback: {fallback_url}", flush=True)
     subprocess.run(["wget", "-q", "-c", fallback_url, "-O", str(local_target)], check=True)
@@ -267,7 +270,6 @@ def run_pixai_tagger(
     gen_indices = gen_mask.nonzero(as_tuple=True)[0].tolist()
     char_indices = (char_mask.nonzero(as_tuple=True)[0] + gen_count).tolist()
 
-    # Sort both categories by probability descending
     gen_Pairs = sorted(
         [(idx_to_tag[i], float(probs[i].item())) for i in gen_indices if i in idx_to_tag],
         key=lambda x: x[1],
@@ -298,7 +300,6 @@ def run_pixai_tagger(
     formatted_ip = [format_tag_token(t, replace_underscore, escape_parens) for t in raw_ip_tags]
     formatted_gen = [format_tag_token(t, replace_underscore, escape_parens) for t in raw_gen_tags]
 
-    # Standard Booru / Anima ordering: Character -> IP/Series -> General features
     combined: List[str] = []
     seen_out = set()
     for t in formatted_char + formatted_ip + formatted_gen:

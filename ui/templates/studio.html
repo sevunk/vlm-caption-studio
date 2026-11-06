@@ -62,7 +62,7 @@
     color: var(--text-muted); cursor: pointer; border: none; background: transparent; transition: 0.15s;
   }
   .f-pill.active { background: #1e293b; color: #38bdf8; font-weight: 600; }
-  .subbar-right { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+  .subbar-right { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
 
   /* BUTTONS & INPUTS */
   .btn {
@@ -171,7 +171,7 @@
   .msg { max-width: 84%; padding: 11px 15px; border-radius: 11px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; position: relative; }
   .msg-user { align-self: flex-end; background: #1e3a8a; color: #f8fafc; border: 1px solid #2563eb; }
   .msg-ai { align-self: flex-start; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); }
-  .msg-toolbar { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .msg-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 7px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.06); }
   .chat-bar { display: flex; gap: 8px; align-items: flex-end; background: var(--bg-panel); padding: 9px; border-radius: 10px; border: 1px solid var(--border); }
 
   /* LIGHTBOX SPLIT EDITOR */
@@ -245,10 +245,10 @@
         <button type="button" class="f-pill" id="pill-lowres" onclick="setFilter('lowres')" title="Resolusi sisi terpendek di bawah 512px">Low-Res <b id="cnt-lowres">0</b></button>
       </div>
 
-      <input type="text" id="searchQuery" class="input" style="width:185px; padding:5px 9px;" placeholder="🔍 Cari nama file / isi caption..." oninput="onSearchInput()">
+      <input type="text" id="searchQuery" class="input" style="width:175px; padding:5px 9px;" placeholder="🔍 Cari nama file / isi caption..." oninput="onSearchInput()">
 
       <div style="display:flex; align-items:center; gap:4px;">
-        <input type="text" id="activeFolderInput" class="input" style="width:165px; padding:5px 8px;" value="/content/dataset" title="Folder Dataset Aktif">
+        <input type="text" id="activeFolderInput" class="input" style="width:155px; padding:5px 8px;" value="/content/dataset" title="Folder Dataset Aktif">
         <button type="button" class="btn btn-xs" onclick="changeActiveFolder()">📂 Buka</button>
       </div>
     </div>
@@ -260,6 +260,8 @@
       <button type="button" class="btn btn-xs" onclick="selectPageRows(true)" title="Pilih semua item di halaman ini">Select Page</button>
       <button type="button" class="btn btn-xs" onclick="selectAllFilteredRows(true)" title="Pilih seluruh item di filter saat ini">Select All</button>
       <button type="button" class="btn btn-xs" onclick="selectAllFilteredRows(false)">Deselect</button>
+      <button type="button" class="btn btn-xs btn-danger" onclick="deleteBatchItems(false)" title="Hapus gambar yang sedang dicentang">🗑️ Hapus Selected</button>
+      <button type="button" class="btn btn-xs btn-danger" onclick="deleteBatchItems(true)" title="Kosongkan seluruh gambar & caption di folder ini">💥 Hapus Semua</button>
       <button type="button" class="btn btn-xs" onclick="loadDataset()">🔄 Refresh</button>
     </div>
   </div>
@@ -607,6 +609,7 @@ let STATE = {
   pixaiKey: BOOT_DATA.pixai_tagger_key || "PixAI Tagger v0.9 [Fast Anime & Character/IP Booru Tagger]",
   isGenerating: false,
   stopRequested: false,
+  avgSecPerItem: 9.5,
   chatHistory: [],
   chatImageDataUri: null,
   lightboxImgPath: null,
@@ -1017,7 +1020,6 @@ function renderRows() {
       }, 400);
     });
 
-    // Keyboard shortcuts inside row textarea: Ctrl+Enter = Generate 1 Ini, Alt+Up/Down = Navigate rows
     ta.addEventListener("keydown", (ev) => {
       if (ev.ctrlKey && ev.key === "Enter") {
         ev.preventDefault();
@@ -1059,6 +1061,34 @@ function selectAllFilteredRows(flag) {
   } else {
     getFilteredItems().forEach(it => STATE.selected.add(it.img_path));
   }
+  renderRows();
+}
+
+async function deleteBatchItems(deleteAllFlag) {
+  if (deleteAllFlag) {
+    if (!STATE.items.length) return alert("Dataset saat ini sudah kosong!");
+    if (!confirm("⚠️ PERINGATAN: Hapus SEMUA (" + STATE.items.length + ") gambar beserta file caption (.txt) di folder '" + STATE.folder + "'?")) return;
+  } else {
+    if (!STATE.selected.size) return alert("Centang minimal 1 gambar yang ingin dihapus terlebih dahulu!");
+    if (!confirm("Hapus " + STATE.selected.size + " gambar yang dicentang beserta file .txt-nya?")) return;
+  }
+
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "⏳ Menghapus file...";
+  const res = await fetch("./studio_api/delete_batch", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      folder: STATE.folder,
+      selected_img_paths: deleteAllFlag ? null : Array.from(STATE.selected),
+      delete_all: Boolean(deleteAllFlag)
+    })
+  });
+  const data = await res.json();
+  STATE.selected.clear();
+  STATE.items = data.items || [];
+  STATE.page = 1;
+  banner.textContent = "🗑️ " + (data.msg || "Selesai menghapus gambar.");
   renderRows();
 }
 
@@ -1114,7 +1144,8 @@ function applyCaptionUpdateToItem(it, data) {
   if (it._domTa) it._domTa.value = data.caption;
   if (it._domBadge) {
     it._domBadge.className = formatTokenBadgeClass(data.tokens) + " word-badge";
-    it._domBadge.textContent = data.words + " words · ~" + data.tokens + " tok · ✓";
+    const secStr = data.elapsed_sec ? (" · " + data.elapsed_sec + "s") : "";
+    it._domBadge.textContent = data.words + " words · ~" + data.tokens + " tok" + secStr + " · ✓";
   }
   if (STATE.lightboxImgPath === it.img_path) {
     document.getElementById("lbTextarea").value = data.caption;
@@ -1125,8 +1156,13 @@ function applyCaptionUpdateToItem(it, data) {
 
 async function generateSingleRowItem(it) {
   const banner = document.getElementById("statusBanner");
-  banner.textContent = "⚡ Menganalisis " + it.name + "...";
-  if (it._domBadge) it._domBadge.textContent = "⏳ generating...";
+  const tStart = performance.now();
+  const timerId = setInterval(() => {
+    const el = ((performance.now() - tStart) / 1000).toFixed(1);
+    banner.textContent = "⚡ Menganalisis " + it.name + "... (" + el + " dtk berjalan · Est. ~6–15 dtk)";
+    if (it._domBadge) it._domBadge.textContent = "⏳ " + el + "s...";
+  }, 200);
+
   try {
     const res = await fetch("./studio_api/generate_one", {
       method: "POST",
@@ -1134,14 +1170,16 @@ async function generateSingleRowItem(it) {
       body: JSON.stringify(getGenerationPayload(it.img_path))
     });
     const data = await res.json();
+    clearInterval(timerId);
     if (data.ok && data.caption) {
       applyCaptionUpdateToItem(it, data);
-      banner.textContent = "✅ Selesai: " + it.name;
+      banner.textContent = "✅ Selesai: " + it.name + " (" + (data.elapsed_sec || ((performance.now() - tStart) / 1000).toFixed(1)) + " dtk)";
     } else {
       banner.textContent = "⚠️ Gagal men-generate caption untuk " + it.name;
     }
     refreshTelemetry();
   } catch (e) {
+    clearInterval(timerId);
     banner.textContent = "⚠️ Error koneksi saat memproses " + it.name;
   }
 }
@@ -1224,28 +1262,57 @@ async function generateSelectedCaptions() {
   STATE.isGenerating = true;
   STATE.stopRequested = false;
   const banner = document.getElementById("statusBanner");
+  let completedCount = 0;
 
   for (let i = 0; i < targets.length; i++) {
     if (STATE.stopRequested) break;
     const it = targets[i];
     btn.textContent = "⏹️ Stop (" + (i + 1) + "/" + targets.length + ")";
-    banner.textContent = "⚡ [" + (i + 1) + "/" + targets.length + "] Menganalisis " + it.name + "...";
-    try {
-      const res = await fetch("./studio_api/generate_one", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(getGenerationPayload(it.img_path))
-      });
-      const data = await res.json();
-      if (data.ok && data.caption) applyCaptionUpdateToItem(it, data);
-    } catch (e) {
-      console.error(e);
+
+    const tItemStart = performance.now();
+    const remItems = targets.length - i;
+    const estTotalRem = Math.round(remItems * STATE.avgSecPerItem);
+
+    const itemTimer = setInterval(() => {
+      const curEl = ((performance.now() - tItemStart) / 1000).toFixed(1);
+      banner.textContent =
+        "⚡ [" + (i + 1) + "/" + targets.length + "] " + it.name +
+        " (" + curEl + "s · Sisa ETA ~" + Math.max(1, estTotalRem - Math.round(curEl)) + " dtk)";
+      if (it._domBadge) it._domBadge.textContent = "⏳ " + curEl + "s...";
+    }, 200);
+
+    let successItem = false;
+    for (let tryNum = 0; tryNum < 2; tryNum++) {
+      try {
+        const res = await fetch("./studio_api/generate_one", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(getGenerationPayload(it.img_path))
+        });
+        const data = await res.json();
+        if (data.ok && data.caption) {
+          const itemSec = (performance.now() - tItemStart) / 1000;
+          STATE.avgSecPerItem = STATE.avgSecPerItem * 0.65 + itemSec * 0.35;
+          applyCaptionUpdateToItem(it, data);
+          completedCount++;
+          successItem = true;
+          break;
+        }
+      } catch (e) {
+        console.error("Attempt failed for", it.name, e);
+      }
+    }
+    clearInterval(itemTimer);
+    if (!successItem && it._domBadge) {
+      it._domBadge.textContent = "⚠️ Gagal, klik ⚡ Generate 1 Ini";
     }
   }
 
   STATE.isGenerating = false;
   btn.textContent = "✨ Generate (Selected)";
-  banner.textContent = STATE.stopRequested ? "⏹️ Proses batch dihentikan." : "✅ Selesai memproses " + targets.length + " gambar!";
+  banner.textContent = STATE.stopRequested
+    ? ("⏹️ Dihentikan (" + completedCount + "/" + targets.length + " selesai).")
+    : ("✅ Selesai memproses " + completedCount + "/" + targets.length + " gambar!");
   refreshTelemetry();
 }
 
@@ -1403,7 +1470,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && STATE.lightboxImgPath) closeLightbox();
 });
 
-/* ==================== TAB 2: MULTIMODAL CHAT ==================== */
+/* ==================== TAB 2: MULTIMODAL CHAT WITH LIVE TIMER & ETA ==================== */
 function onChatImagePicked(ev) {
   const file = ev.target.files[0];
   if (!file) return;
@@ -1430,6 +1497,8 @@ async function sendChatMessage() {
 
   const box = document.getElementById("chatMessages");
   const sentImg = STATE.chatImageDataUri;
+  const isThinking = document.getElementById("chatThinkingChk").checked;
+  const hasImgContext = Boolean(sentImg || STATE.chatHistory.some(h => h.image_data_uri));
 
   const uDiv = document.createElement("div");
   uDiv.className = "msg msg-user";
@@ -1446,74 +1515,92 @@ async function sendChatMessage() {
 
   const aiDiv = document.createElement("div");
   aiDiv.className = "msg msg-ai";
-  aiDiv.textContent = "⏳ Sedang menganalisis & menyusun respons...";
+  const estRange = isThinking ? "15–35 dtk (Thinking Mode)" : (hasImgContext ? "10–25 dtk (Multimodal Vision)" : "5–14 dtk (Teks)");
+  aiDiv.textContent = "⏳ Sedang menganalisis & menyusun respons... (0.0 dtk berjalan · Estimasi T4: ~" + estRange + ")";
   box.appendChild(aiDiv);
   box.scrollTop = box.scrollHeight;
 
   inp.value = "";
   clearChatImage();
 
-  const res = await fetch("./studio_api/chat", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      model_key: document.getElementById("modelSelect").value,
-      sys_prompt: document.getElementById("chatSysPrompt").value,
-      history: STATE.chatHistory,
-      message: text,
-      image_data_uri: sentImg,
-      temperature: parseFloat(document.getElementById("chatTemp").value || "0.7"),
-      max_tokens: parseInt(document.getElementById("chatMaxTok").value || "768", 10),
-      enable_thinking: document.getElementById("chatThinkingChk").checked
-    })
-  });
-  const data = await res.json();
-  aiDiv.innerHTML = "";
+  const tChatStart = performance.now();
+  const chatTimer = setInterval(() => {
+    const elSec = ((performance.now() - tChatStart) / 1000).toFixed(1);
+    aiDiv.textContent = "⏳ Sedang menganalisis & menyusun respons... (" + elSec + " dtk berjalan · Estimasi T4: ~" + estRange + ")";
+  }, 150);
 
-  if (data.thinking) {
-    const det = document.createElement("details");
-    det.style.cssText = "margin-bottom:8px; font-size:11.5px; color:#94a3b8; background:#0c0f17; padding:6px 10px; border-radius:6px;";
-    const sum = document.createElement("summary");
-    sum.style.cursor = "pointer";
-    sum.textContent = "🧠 Lihat Proses Penalaran (Thinking Trace)";
-    const pre = document.createElement("div");
-    pre.style.marginTop = "6px";
-    pre.textContent = data.thinking;
-    det.appendChild(sum);
-    det.appendChild(pre);
-    aiDiv.appendChild(det);
+  try {
+    const res = await fetch("./studio_api/chat", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        model_key: document.getElementById("modelSelect").value,
+        sys_prompt: document.getElementById("chatSysPrompt").value,
+        history: STATE.chatHistory,
+        message: text,
+        image_data_uri: sentImg,
+        temperature: parseFloat(document.getElementById("chatTemp").value || "0.7"),
+        max_tokens: parseInt(document.getElementById("chatMaxTok").value || "768", 10),
+        enable_thinking: isThinking
+      })
+    });
+    const data = await res.json();
+    clearInterval(chatTimer);
+    const totalSec = data.elapsed_sec || ((performance.now() - tChatStart) / 1000).toFixed(1);
+    aiDiv.innerHTML = "";
+
+    if (data.thinking) {
+      const det = document.createElement("details");
+      det.style.cssText = "margin-bottom:8px; font-size:11.5px; color:#94a3b8; background:#0c0f17; padding:6px 10px; border-radius:6px;";
+      const sum = document.createElement("summary");
+      sum.style.cursor = "pointer";
+      sum.textContent = "🧠 Lihat Proses Penalaran (Thinking Trace)";
+      const pre = document.createElement("div");
+      pre.style.marginTop = "6px";
+      pre.textContent = data.thinking;
+      det.appendChild(sum);
+      det.appendChild(pre);
+      aiDiv.appendChild(det);
+    }
+
+    const bodyEl = document.createElement("div");
+    bodyEl.textContent = data.reply || "";
+    aiDiv.appendChild(bodyEl);
+
+    const tb = document.createElement("div");
+    tb.className = "msg-toolbar";
+    const metaSpan = document.createElement("span");
+    metaSpan.style.cssText = "font-size:11px; color:#64748b;";
+    metaSpan.textContent = "⚡ Selesai dalam " + totalSec + " dtk · ~" + (data.tokens || 0) + " tokens";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn btn-xs";
+    copyBtn.textContent = "📋 Copy Prompt / Jawaban";
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(data.reply || "");
+      copyBtn.textContent = "✓ Copied!";
+      setTimeout(() => { copyBtn.textContent = "📋 Copy Prompt / Jawaban"; }, 1500);
+    };
+    tb.appendChild(metaSpan);
+    tb.appendChild(copyBtn);
+    aiDiv.appendChild(tb);
+
+    STATE.chatHistory.push({
+      role: "user",
+      content: text || "Describe this image.",
+      image_data_uri: sentImg || null
+    });
+    STATE.chatHistory.push({
+      role: "assistant",
+      content: data.reply || ""
+    });
+    box.scrollTop = box.scrollHeight;
+    refreshTelemetry();
+  } catch (e) {
+    clearInterval(chatTimer);
+    aiDiv.textContent = "⚠️ Koneksi terputus atau server sibuk: " + e;
   }
-
-  const bodyEl = document.createElement("div");
-  bodyEl.textContent = data.reply || "";
-  aiDiv.appendChild(bodyEl);
-
-  const tb = document.createElement("div");
-  tb.className = "msg-toolbar";
-  const copyBtn = document.createElement("button");
-  copyBtn.type = "button";
-  copyBtn.className = "btn btn-xs";
-  copyBtn.textContent = "📋 Copy Prompt / Jawaban";
-  copyBtn.onclick = () => {
-    navigator.clipboard.writeText(data.reply || "");
-    copyBtn.textContent = "✓ Copied!";
-    setTimeout(() => { copyBtn.textContent = "📋 Copy Prompt / Jawaban"; }, 1500);
-  };
-  tb.appendChild(copyBtn);
-  aiDiv.appendChild(tb);
-
-  // Store image_data_uri inside chatHistory so follow-up questions continue to see the image!
-  STATE.chatHistory.push({
-    role: "user",
-    content: text || "Describe this image.",
-    image_data_uri: sentImg || null
-  });
-  STATE.chatHistory.push({
-    role: "assistant",
-    content: data.reply || ""
-  });
-  box.scrollTop = box.scrollHeight;
-  refreshTelemetry();
 }
 
 function clearChatHistory() {
