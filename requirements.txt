@@ -1,0 +1,12 @@
+huggingface_hub>=0.25.0
+requests>=2.31.0
+pillow>=10.0.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+python-multipart>=0.0.9
+gradio>=5.0.0,<6.0.0
+timm>=1.0.17
+safetensors>=0.4.3
+torchvision>=0.17.0
+nvidia-cuda-runtime-cu12
+nvidia-cublas-cu12

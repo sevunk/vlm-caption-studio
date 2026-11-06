@@ -1,0 +1,1575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vision AI Dataset Labeling, Booru Tagger & Multimodal Chat Studio</title>
+<style>
+  :root {
+    --bg-main: #090b10;
+    --bg-panel: #11151f;
+    --bg-card: #161b28;
+    --bg-input: #0d1017;
+    --border: #22293a;
+    --border-hover: #364156;
+    --accent: #1d9bf0;
+    --accent-glow: rgba(29, 155, 240, 0.22);
+    --purple: #8b5cf6;
+    --text: #e2e8f0;
+    --text-muted: #8b95a7;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+  body { background: var(--bg-main); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* NAVBAR */
+  .navbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px; background: var(--bg-panel); border-bottom: 1px solid var(--border);
+    flex-shrink: 0; gap: 12px; flex-wrap: wrap;
+  }
+  .nav-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14.5px; color: #f8fafc; }
+  .telemetry-strip {
+    display: flex; align-items: center; gap: 8px; font-size: 11.5px;
+    background: var(--bg-input); padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border);
+  }
+  .tel-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 5px; background: #161d2b; color: #cbd5e1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .dot-online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .dot-loading { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+  .dot-standby { background: #64748b; }
+
+  .nav-tabs { display: flex; gap: 4px; background: var(--bg-input); padding: 3px; border-radius: 9px; border: 1px solid var(--border); }
+  .nav-tab {
+    padding: 6px 13px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
+    color: var(--text-muted); cursor: pointer; border: none; background: transparent; transition: 0.15s;
+  }
+  .nav-tab.active { background: var(--bg-card); color: #fff; border: 1px solid var(--border); }
+  .nav-right { display: flex; align-items: center; gap: 8px; }
+
+  /* SUBBAR */
+  .subbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px; border-bottom: 1px solid var(--border); background: #0c0f17;
+    flex-shrink: 0; gap: 10px; flex-wrap: wrap;
+  }
+  .subbar-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .filter-pills { display: flex; gap: 4px; background: var(--bg-panel); padding: 3px; border-radius: 8px; border: 1px solid var(--border); }
+  .f-pill {
+    padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500;
+    color: var(--text-muted); cursor: pointer; border: none; background: transparent; transition: 0.15s;
+  }
+  .f-pill.active { background: #1e293b; color: #38bdf8; font-weight: 600; }
+  .subbar-right { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+
+  /* BUTTONS & INPUTS */
+  .btn {
+    padding: 6px 11px; border-radius: 7px; font-size: 12px; font-weight: 500;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text);
+    cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 5px; text-decoration: none;
+  }
+  .btn:hover { border-color: var(--border-hover); background: #1f2637; }
+  .btn-xs { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+  .btn-primary {
+    background: linear-gradient(180deg, #2596ff 0%, #1d7ed8 100%);
+    border-color: #38bdf8; color: #fff; font-weight: 600;
+  }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-purple {
+    background: linear-gradient(180deg, #8b5cf6 0%, #6d28d9 100%);
+    border-color: #a78bfa; color: #fff; font-weight: 600;
+  }
+  .btn-danger:hover { border-color: var(--danger); color: #fca5a5; background: rgba(239,68,68,0.12); }
+  .btn-block { width: 100%; justify-content: center; padding: 9px; font-size: 13px; border-radius: 8px; }
+
+  .input, .select, .textarea {
+    width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+    color: var(--text); padding: 7px 10px; border-radius: 7px; font-size: 12px; outline: none;
+  }
+  .input:focus, .select:focus, .textarea:focus { border-color: var(--accent); }
+  .field-label { font-size: 11.5px; font-weight: 600; color: #94a3b8; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+
+  /* TABS */
+  .tab-view { display: none; flex: 1; overflow: hidden; }
+  .tab-view.active { display: flex; }
+
+  /* TAB 1: LIST PANE & CARDS */
+  .list-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 8px; }
+  .upload-drawer {
+    display: none; background: var(--bg-panel); border: 1.5px dashed #38bdf8;
+    border-radius: 9px; padding: 12px 16px; align-items: center; justify-content: space-between;
+    flex-shrink: 0; gap: 12px; flex-wrap: wrap;
+  }
+  .upload-drawer.open { display: flex; }
+  .rows-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+
+  .label-row {
+    display: flex; align-items: stretch; gap: 12px;
+    background: var(--bg-panel); border: 1.5px solid var(--border);
+    border-radius: 9px; padding: 9px 12px; transition: 0.15s; position: relative;
+    flex-shrink: 0;
+  }
+  .label-row:hover { border-color: #334155; }
+  .label-row.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent-glow), inset 0 0 14px rgba(29, 155, 240, 0.04);
+    background: #121826;
+  }
+  .row-check-wrap { display: flex; align-items: flex-start; padding-top: 3px; }
+  .row-check { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+  .row-thumb-wrap { position: relative; width: 88px; height: 88px; flex-shrink: 0; }
+  .row-thumb {
+    width: 88px; height: 88px; border-radius: 7px; object-fit: cover;
+    background: #080a0f; border: 1px solid var(--border); cursor: zoom-in; display: block;
+  }
+  .res-badge {
+    position: absolute; bottom: 3px; left: 3px; right: 3px;
+    background: rgba(9, 11, 16, 0.82); color: #cbd5e1; font-size: 9.5px;
+    text-align: center; padding: 1px 3px; border-radius: 4px; pointer-events: none;
+  }
+  .res-badge.low-res { background: rgba(239, 68, 68, 0.88); color: #fff; font-weight: 600; }
+
+  .row-body { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .row-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); gap: 8px; flex-wrap: wrap; }
+  .row-actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .tok-badge { padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; background: #1e293b; color: #94a3b8; }
+  .tok-ok { background: rgba(16, 185, 129, 0.14); color: #34d399; }
+  .tok-warn { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+  .tok-over { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+
+  .row-textarea {
+    flex: 1; width: 100%; background: transparent; border: none; color: var(--text);
+    font-size: 12.8px; line-height: 1.48; resize: none; outline: none; min-height: 62px;
+  }
+  .row-textarea::placeholder { color: #475569; font-style: italic; }
+
+  .pagination-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px; background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12px; color: var(--text-muted); flex-shrink: 0;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 390px; background: var(--bg-panel); border-left: 1px solid var(--border);
+    padding: 13px 15px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex-shrink: 0;
+  }
+  .model-desc { font-size: 11px; color: #64748b; line-height: 1.38; margin-top: 3px; }
+  .drawer-box {
+    display: none; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; flex-direction: column; gap: 7px;
+  }
+  .drawer-box.open { display: flex; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+
+  /* CHAT TAB */
+  .chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 14px 20px; gap: 10px; }
+  .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 6px; }
+  .msg { max-width: 84%; padding: 11px 15px; border-radius: 11px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; position: relative; }
+  .msg-user { align-self: flex-end; background: #1e3a8a; color: #f8fafc; border: 1px solid #2563eb; }
+  .msg-ai { align-self: flex-start; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); }
+  .msg-toolbar { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .chat-bar { display: flex; gap: 8px; align-items: flex-end; background: var(--bg-panel); padding: 9px; border-radius: 10px; border: 1px solid var(--border); }
+
+  /* LIGHTBOX SPLIT EDITOR */
+  .lightbox {
+    display: none; position: fixed; inset: 0; background: rgba(5, 7, 12, 0.92);
+    z-index: 9999; align-items: center; justify-content: center; padding: 24px;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox-card {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+    width: 94vw; max-width: 1280px; height: 86vh; display: flex; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+  }
+  .lb-img-pane {
+    flex: 1.3; background: #05070b; display: flex; align-items: center; justify-content: center;
+    position: relative; padding: 14px; overflow: hidden;
+  }
+  .lb-img-pane img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+  .lb-edit-pane {
+    width: 440px; border-left: 1px solid var(--border); padding: 16px;
+    display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
+  }
+
+  /* MANAGER TABLE */
+  .inv-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .inv-table th, .inv-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+  .inv-table th { color: #94a3b8; font-weight: 600; background: var(--bg-input); }
+</style>
+</head>
+<body>
+
+<!-- ==================== TOP NAVBAR & LIVE TELEMETRY ==================== -->
+<div class="navbar">
+  <div class="nav-brand">
+    <span>⚡ Vision AI Labeling, PixAI Booru & Chat Studio</span>
+  </div>
+
+  <div class="telemetry-strip">
+    <span class="tel-badge" title="Status Mesin VLM (llama-server)">
+      <span class="dot dot-standby" id="telVlmDot"></span>
+      <span id="telVlmText">VLM: Standby</span>
+    </span>
+    <span class="tel-badge" title="Status Mesin PixAI Tagger v0.9">
+      <span class="dot dot-standby" id="telTaggerDot"></span>
+      <span id="telTaggerText">PixAI: Standby</span>
+    </span>
+    <span class="tel-badge" id="telVramBadge">VRAM: 0.0 / 15.0 GB</span>
+    <span class="tel-badge" id="telDiskBadge">Disk Free: -- GB</span>
+  </div>
+
+  <div class="nav-tabs">
+    <button type="button" class="nav-tab active" id="tabBtn-labeling" onclick="switchTab('labeling', this)">🏷️ Labeling & Tagging</button>
+    <button type="button" class="nav-tab" id="tabBtn-chat" onclick="switchTab('chat', this)">💬 Multimodal AI Chat</button>
+    <button type="button" class="nav-tab" id="tabBtn-manager" onclick="switchTab('manager', this)">🗂️ File, Drive & VRAM Manager</button>
+  </div>
+
+  <div class="nav-right">
+    <button type="button" class="btn" onclick="toggleUploadDrawer()">📤 Upload Images / .ZIP</button>
+    <a class="btn btn-primary" id="downloadZipLink" href="./studio_api/download_zip" target="_blank">📥 Download (.zip)</a>
+  </div>
+</div>
+
+<!-- ==================== TAB 1: LABELING & BOORU TAGGING ==================== -->
+<div id="tab-labeling" class="tab-view active" style="flex-direction: column;">
+  <div class="subbar">
+    <div class="subbar-left">
+      <div class="filter-pills">
+        <button type="button" class="f-pill active" id="pill-all" onclick="setFilter('all')">All <b id="cnt-all">0</b></button>
+        <button type="button" class="f-pill" id="pill-cap" onclick="setFilter('captioned')">Captioned <b id="cnt-cap">0</b></button>
+        <button type="button" class="f-pill" id="pill-uncap" onclick="setFilter('uncaptioned')">Uncaptioned <b id="cnt-uncap">0</b></button>
+        <button type="button" class="f-pill" id="pill-short" onclick="setFilter('short')" title="Caption kurang dari 15 kata">Short &lt;15w <b id="cnt-short">0</b></button>
+        <button type="button" class="f-pill" id="pill-lowres" onclick="setFilter('lowres')" title="Resolusi sisi terpendek di bawah 512px">Low-Res <b id="cnt-lowres">0</b></button>
+      </div>
+
+      <input type="text" id="searchQuery" class="input" style="width:185px; padding:5px 9px;" placeholder="🔍 Cari nama file / isi caption..." oninput="onSearchInput()">
+
+      <div style="display:flex; align-items:center; gap:4px;">
+        <input type="text" id="activeFolderInput" class="input" style="width:165px; padding:5px 8px;" value="/content/dataset" title="Folder Dataset Aktif">
+        <button type="button" class="btn btn-xs" onclick="changeActiveFolder()">📂 Buka</button>
+      </div>
+    </div>
+
+    <div class="subbar-right">
+      <span id="statusBanner" style="color:#38bdf8; font-weight:600;">Ready</span>
+      <span>·</span>
+      <span id="selCounter">0 selected</span>
+      <button type="button" class="btn btn-xs" onclick="selectPageRows(true)" title="Pilih semua item di halaman ini">Select Page</button>
+      <button type="button" class="btn btn-xs" onclick="selectAllFilteredRows(true)" title="Pilih seluruh item di filter saat ini">Select All</button>
+      <button type="button" class="btn btn-xs" onclick="selectAllFilteredRows(false)">Deselect</button>
+      <button type="button" class="btn btn-xs" onclick="loadDataset()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div style="display:flex; flex:1; overflow:hidden;">
+    <div class="list-pane">
+      <div class="upload-drawer" id="uploadDrawer">
+        <div>
+          <b style="color:#38bdf8; font-size:12.5px;">📤 Upload Gambar (.png, .jpg, .webp) atau Arsip .ZIP Dataset (Otomatis Anti-__MACOSX & Verifikasi Korup)</b>
+          <p style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">Mendukung ekstraksi sub-folder otomatis beserta pasangan file .txt-nya.</p>
+        </div>
+        <div style="display:flex; gap:7px; align-items:center;">
+          <input type="file" id="fileUploadInput" multiple accept=".png,.jpg,.jpeg,.webp,.bmp,.txt,.zip" class="input" style="width:250px;">
+          <button type="button" class="btn btn-primary" onclick="uploadFilesNow()">⬆️ Upload Sekarang</button>
+          <button type="button" class="btn" onclick="toggleUploadDrawer()">✕</button>
+        </div>
+      </div>
+
+      <div class="rows-scroll" id="rowsContainer"></div>
+
+      <!-- PAGINATION BAR -->
+      <div class="pagination-bar">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span>Baris per halaman:</span>
+          <select id="pageSizeSelect" class="select" style="width:70px; padding:3px 6px;" onchange="onPageSizeChange()">
+            <option value="30" selected>30</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <span id="pageRangeInfo">Menampilkan 0–0 dari 0</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span style="font-size:11px; color:#64748b;">Pintasan: <b>Ctrl+Enter</b> = Generate 1 · <b>Alt+↑/↓</b> = Pindah Baris</span>
+          <button type="button" class="btn btn-xs" id="btnPrevPage" onclick="changePage(-1)">◀ Prev</button>
+          <span id="pageIndicator" style="font-weight:600; color:#e2e8f0; min-width:85px; text-align:center;">Page 1 / 1</span>
+          <button type="button" class="btn btn-xs" id="btnNextPage" onclick="changePage(1)">Next ▶</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div class="sidebar">
+      <div class="grid-2">
+        <button type="button" class="btn btn-primary btn-block" id="btnGenerateBatch" onclick="generateSelectedCaptions()">
+          ✨ Generate (Selected)
+        </button>
+        <button type="button" class="btn btn-purple btn-block" id="btnTagBatch" onclick="tagSelectedWithPixAI()" title="Tag cepat gambar terpilih dengan PixAI Tagger v0.9">
+          🏷️ PixAI Tag (Selected)
+        </button>
+      </div>
+
+      <button type="button" class="btn btn-block" onclick="toggleDrawer('editLabelsDrawer')">
+        🔧 Trigger Word & Bulk Find/Replace
+      </button>
+
+      <div class="drawer-box" id="editLabelsDrawer">
+        <div>
+          <label class="field-label">Trigger Word</label>
+          <input type="text" id="trigWord" class="input" placeholder="e.g. ohwx_woman, makima_(chainsaw_man)">
+        </div>
+        <div class="grid-2">
+          <div>
+            <label class="field-label">Posisi Trigger</label>
+            <select id="trigPos" class="select">
+              <option value="front" selected>Depan (Front)</option>
+              <option value="back">Belakang (Back)</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Target File</label>
+            <select id="bulkTargetScope" class="select">
+              <option value="all" selected>Semua File (.txt)</option>
+              <option value="selected">Hanya yang Dicentang</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex; gap:12px; font-size:11.5px;">
+          <label><input type="checkbox" id="trigLower"> Lowercase</label>
+          <label><input type="checkbox" id="trigSkip" checked> Skip Duplicate</label>
+        </div>
+        <div class="grid-2">
+          <input type="text" id="findStr" class="input" placeholder="Find word/tag...">
+          <input type="text" id="repStr" class="input" placeholder="Replace with...">
+        </div>
+        <div class="grid-2">
+          <button type="button" class="btn btn-primary" onclick="runBulkEdit('apply')">✓ Terapkan</button>
+          <button type="button" class="btn" onclick="runBulkEdit('restore')">♻️ Restore Backup</button>
+        </div>
+      </div>
+
+      <!-- MODEL SELECTOR + VRAM CONTROLS -->
+      <div>
+        <div class="field-label">
+          <span>Model Utama (7 VLM GGUF + PixAI Tagger v0.9)</span>
+          <span id="modelDiskBadge" style="font-size:10.5px; color:#38bdf8;"></span>
+        </div>
+        <select id="modelSelect" class="select" onchange="onModelChange()"></select>
+        <div class="model-desc" id="modelDesc"></div>
+        <div class="grid-2" style="margin-top:6px;">
+          <button type="button" class="btn btn-xs" style="justify-content:center;" onclick="loadSelectedModelNow()">⚡ Load Model ke VRAM</button>
+          <button type="button" class="btn btn-xs btn-danger" style="justify-content:center;" onclick="unloadVramNow('all')">🧹 Unload VRAM</button>
+        </div>
+      </div>
+
+      <!-- HYBRID PIXAI TAGGER V0.9 ASSISTANT -->
+      <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:9px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+          <label style="font-size:11.8px; font-weight:600; color:#c4b5fd; display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="checkbox" id="hybridTaggerChk" onchange="toggleHybridDrawer()">
+            🔗 Asisten Hybrid PixAI Tagger v0.9
+          </label>
+          <button type="button" class="btn btn-xs" onclick="toggleDrawer('pixaiSettingsBox')">⚙️ Threshold</button>
+        </div>
+        <div class="drawer-box" id="pixaiSettingsBox" style="margin-top:7px; padding:8px;">
+          <div>
+            <label class="field-label">Mode Integrasi saat VLM Aktif</label>
+            <select id="hybridModeSelect" class="select">
+              <option value="grounding" selected>Grounding Prompt (Bantu VLM Kenali Karakter/IP)</option>
+              <option value="prepend">Anima Hybrid: Tag PixAI di Depan + Paragraf VLM</option>
+              <option value="append">Paragraf VLM + Tag PixAI di Belakang</option>
+            </select>
+          </div>
+          <div class="grid-2">
+            <div>
+              <label class="field-label">General Thresh</label>
+              <input type="number" id="pixaiGenTh" class="input" value="0.30" step="0.05" min="0.05" max="0.95">
+            </div>
+            <div>
+              <label class="field-label">Character Thresh</label>
+              <input type="number" id="pixaiCharTh" class="input" value="0.75" step="0.05" min="0.10" max="0.99">
+            </div>
+          </div>
+          <div style="display:flex; gap:10px; font-size:11px; color:var(--text-muted);">
+            <label><input type="checkbox" id="pixaiNoUnderscore"> Hapus Underscore (_)</label>
+            <label><input type="checkbox" id="pixaiEscapeParen"> Escape \( \)</label>
+          </div>
+          <div>
+            <input type="text" id="pixaiExcludeTags" class="input" placeholder="Exclude tags (e.g. signature, watermark)">
+          </div>
+        </div>
+      </div>
+
+      <!-- GLOBAL SUBJECT / CONCEPT HINT -->
+      <div>
+        <label class="field-label">
+          <span>Global Subject / Concept Hint (Opsional)</span>
+        </label>
+        <input type="text" id="subjectHintInput" class="input" placeholder="Misal: karakter bernama Maya memakai jaket merah...">
+      </div>
+
+      <!-- STYLE PRESET & SYSTEM PROMPT -->
+      <div>
+        <label class="field-label">Style Preference</label>
+        <select id="styleSelect" class="select" onchange="onStyleChange()"></select>
+      </div>
+
+      <div style="flex:1; display:flex; flex-direction:column; min-height:110px;">
+        <label class="field-label">Caption System Prompt</label>
+        <textarea id="captionPrompt" class="textarea" style="flex:1; min-height:105px; resize:vertical; line-height:1.42;"></textarea>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label class="field-label">Max Tokens Target</label>
+          <input type="number" id="maxTokens" class="input" value="220" min="30" max="1024" onchange="renderRows()">
+        </div>
+        <div>
+          <label class="field-label">Temperature</label>
+          <input type="number" id="temperature" class="input" value="0.2" step="0.05" min="0" max="1.5">
+        </div>
+      </div>
+
+      <label style="font-size:11.5px; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" id="overwriteChk" checked> Timpa gambar yang sudah punya caption saat Batch Generate
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== TAB 2: MULTIMODAL CHAT ==================== -->
+<div id="tab-chat" class="tab-view">
+  <div class="chat-main">
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg msg-ai">Halo! Saya siap membantu Anda merancang prompt T2I/I2V (MOSS-Image, Qwen 2.1, Flux, Chroma1-HD, Anima, Krea 2, Wan 2.1), menganalisis gambar (reverse-prompting/OCR), atau berdiskusi bebas tanpa sensor. Anda juga bisa menekan tombol <b>📌 Ke Chat</b> pada gambar mana pun di Tab 1!</div>
+    </div>
+    <div id="chatImgPreviewBar" style="display:none; align-items:center; gap:10px; background:var(--bg-panel); padding:6px 12px; border-radius:8px; border:1px solid var(--border);">
+      <img id="chatImgPreview" src="" style="height:44px; border-radius:5px;">
+      <span id="chatImgName" style="font-size:12px; color:var(--text-muted); flex:1;"></span>
+      <button type="button" class="btn btn-xs" onclick="clearChatImage()">✕ Hapus Lampiran</button>
+    </div>
+    <div class="chat-bar">
+      <label class="btn" style="height:38px; cursor:pointer;">
+        🖼️ Gambar
+        <input type="file" id="chatImgInput" accept="image/*" style="display:none;" onchange="onChatImagePicked(event)">
+      </label>
+      <textarea id="chatInput" class="textarea" rows="2" placeholder="Ketik pertanyaan atau instruksi tentang gambar... ( Gambar tetap diingat pada pertanyaan lanjutan! )" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendChatMessage();}"></textarea>
+      <button type="button" class="btn btn-primary" style="height:38px; padding:0 16px;" onclick="sendChatMessage()">🚀 Kirim</button>
+    </div>
+  </div>
+  <div class="sidebar">
+    <label class="field-label">System Prompt Chat</label>
+    <textarea id="chatSysPrompt" class="textarea" rows="5">You are an uncensored, helpful multimodal AI assistant and expert prompt engineer for diffusion and video models (Flux, Qwen-Image 2.1, MOSS, Chroma1-HD, Anima, Krea 2, Wan 2.1).</textarea>
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Temperature</label>
+        <input type="number" id="chatTemp" class="input" value="0.7" step="0.05">
+      </div>
+      <div>
+        <label class="field-label">Max Tokens</label>
+        <input type="number" id="chatMaxTok" class="input" value="768" step="64">
+      </div>
+    </div>
+    <label style="font-size:12px; color:#38bdf8; display:flex; align-items:center; gap:6px; cursor:pointer; margin-top:4px;">
+      <input type="checkbox" id="chatThinkingChk"> 🧠 Aktifkan Thinking Mode (Khusus Qwen3.5)
+    </label>
+    <p style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+      💡 <b>Persistent Vision Memory:</b> Gambar yang Anda unggah di chat otomatis disimpan di histori percakapan (maks 2 gambar terakhir) sehingga Anda bisa terus bertanya tanpa perlu mengunggah ulang gambar!
+    </p>
+    <button type="button" class="btn" onclick="clearChatHistory()">🗑️ Bersihkan Riwayat Chat</button>
+  </div>
+</div>
+
+<!-- ==================== TAB 3: SMART FILE, DRIVE & VRAM MANAGER ==================== -->
+<div id="tab-manager" class="tab-view" style="padding:16px; gap:16px; overflow-y:auto;">
+  <!-- LEFT: SMART FILE MANAGER + GOOGLE DRIVE SYNC -->
+  <div style="width:410px; background:var(--bg-panel); border:1px solid var(--border); border-radius:11px; padding:15px; display:flex; flex-direction:column; gap:10px; flex-shrink:0;">
+    <h3 style="font-size:14px;">🛠️ Smart File Manager & Google Drive Backup</h3>
+    <div>
+      <label class="field-label">Pilih Aksi Operasi</label>
+      <select id="mgrAction" class="select" onchange="onManagerActionChange()">
+        <option>Count Statistics</option>
+        <option>Batch Rename</option>
+        <option>Sync Images & Captions</option>
+        <option>Clean Empty Files</option>
+        <option>Zip Folder</option>
+        <option>Unzip File</option>
+        <option>Export to Google Drive</option>
+        <option>Import from Google Drive</option>
+        <option>Copy</option>
+        <option>Move</option>
+        <option>Delete</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Source Path</label>
+      <input type="text" id="mgrSrc" class="input" value="/content/dataset">
+    </div>
+    <div>
+      <label class="field-label">Destination Path</label>
+      <input type="text" id="mgrDst" class="input" value="/content/dataset.zip">
+    </div>
+    <div>
+      <label class="field-label">Rename Prefix (Khusus Batch Rename)</label>
+      <input type="text" id="mgrPrefix" class="input" value="dataset_img">
+    </div>
+    <button type="button" class="btn btn-primary btn-block" onclick="runSmartManager()">▶️ Jalankan Aksi</button>
+
+    <div style="border-top:1px solid var(--border); padding-top:10px; margin-top:4px;">
+      <label class="field-label">Pintasan Cepat Google Drive (/content/drive/MyDrive)</label>
+      <div class="grid-2">
+        <button type="button" class="btn btn-xs" onclick="quickDrivePreset('export')">☁️ Backup ke Drive</button>
+        <button type="button" class="btn btn-xs" onclick="quickDrivePreset('import')">📥 Ambil dari Drive</button>
+      </div>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; min-height:140px;">
+      <label class="field-label">Log Eksekusi File Manager</label>
+      <pre id="mgrLog" style="flex:1; background:var(--bg-input); border:1px solid var(--border); border-radius:7px; padding:10px; font-family:monospace; font-size:11.5px; color:#38bdf8; overflow:auto; white-space:pre-wrap;">Pilih aksi di atas lalu klik Jalankan Aksi.</pre>
+    </div>
+  </div>
+
+  <!-- RIGHT: VLM & PIXAI TAGGER DISK CACHE & VRAM MANAGER -->
+  <div style="flex:1; background:var(--bg-panel); border:1px solid var(--border); border-radius:11px; padding:15px; display:flex; flex-direction:column; gap:10px; overflow:hidden;">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+      <div>
+        <h3 style="font-size:14px;">💾 VLM GGUF & PixAI Tagger Disk Cache / VRAM Manager</h3>
+        <p style="font-size:11.5px; color:var(--text-muted);">Kelola model yang aktif di VRAM Tesla T4 atau hapus file GGUF/PTH lama untuk menghemat ruang disk Colab.</p>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button type="button" class="btn btn-xs" onclick="refreshTelemetry()">🔄 Refresh Status</button>
+        <button type="button" class="btn btn-xs btn-danger" onclick="unloadVramNow('vlm')">🧹 Unload VLM</button>
+        <button type="button" class="btn btn-xs btn-danger" onclick="unloadVramNow('tagger')">🧹 Unload PixAI Tagger</button>
+      </div>
+    </div>
+
+    <div style="flex:1; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
+      <table class="inv-table">
+        <thead>
+          <tr>
+            <th>Model Name</th>
+            <th>Engine</th>
+            <th>Status Disk</th>
+            <th>Ukuran</th>
+            <th>Status VRAM</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="modelsInventoryBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SPLIT-VIEW LIGHTBOX EDITOR MODAL ==================== -->
+<div class="lightbox" id="lightbox" onclick="if(event.target===this) closeLightbox()">
+  <div class="lightbox-card">
+    <div class="lb-img-pane">
+      <img id="lightboxImg" src="" alt="Preview">
+      <div style="position:absolute; bottom:12px; left:12px; display:flex; gap:6px;">
+        <button type="button" class="btn btn-xs" onclick="stepLightbox(-1)">◀ Gambar Sebelumnya</button>
+        <button type="button" class="btn btn-xs" onclick="stepLightbox(1)">Gambar Berikutnya ▶</button>
+      </div>
+    </div>
+    <div class="lb-edit-pane">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <b id="lbFileName" style="font-size:13.5px; color:#38bdf8;">image.png</b>
+        <button type="button" class="btn btn-xs" onclick="closeLightbox()">✕ Tutup (Esc)</button>
+      </div>
+      <div id="lbMetaInfo" style="font-size:11.5px; color:var(--text-muted);"></div>
+      <div class="grid-3">
+        <button type="button" class="btn btn-primary btn-xs" style="justify-content:center;" id="lbBtnGen" onclick="lightboxGenerateOne()">⚡ Generate VLM</button>
+        <button type="button" class="btn btn-purple btn-xs" style="justify-content:center;" id="lbBtnTag" onclick="lightboxTagOne()">🏷️ PixAI Tag</button>
+        <button type="button" class="btn btn-xs" style="justify-content:center;" onclick="lightboxSendToChat()">📌 Ke Chat</button>
+      </div>
+      <label class="field-label">Edit Caption Langsung (Auto-Save)</label>
+      <textarea id="lbTextarea" class="textarea" style="flex:1; min-height:180px; font-size:13px; line-height:1.5; resize:none;"></textarea>
+      <div id="lbPixaiInspector" style="display:none; background:var(--bg-input); border:1px solid var(--border); border-radius:7px; padding:8px; font-size:11px; max-height:150px; overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BOOT_DATA = __INITIAL_BOOT_JSON__;
+
+let STATE = {
+  folder: BOOT_DATA.folder || "/content/dataset",
+  items: [],
+  selected: new Set(),
+  filter: "all",
+  search: "",
+  page: 1,
+  pageSize: 30,
+  models: BOOT_DATA.models || [],
+  styles: BOOT_DATA.styles || {},
+  pixaiKey: BOOT_DATA.pixai_tagger_key || "PixAI Tagger v0.9 [Fast Anime & Character/IP Booru Tagger]",
+  isGenerating: false,
+  stopRequested: false,
+  chatHistory: [],
+  chatImageDataUri: null,
+  lightboxImgPath: null,
+  telemetry: null
+};
+
+function switchTab(name, btnEl) {
+  document.querySelectorAll(".tab-view").forEach(el => el.classList.remove("active"));
+  document.querySelectorAll(".nav-tab").forEach(el => el.classList.remove("active"));
+  const target = document.getElementById("tab-" + name);
+  if (target) target.classList.add("active");
+  if (btnEl) btnEl.classList.add("active");
+  else {
+    const b = document.getElementById("tabBtn-" + name);
+    if (b) b.classList.add("active");
+  }
+}
+
+function updateDownloadLink() {
+  const link = document.getElementById("downloadZipLink");
+  if (link) {
+    link.href = "./studio_api/download_zip?folder=" + encodeURIComponent(STATE.folder);
+  }
+}
+
+function initSelectors() {
+  document.getElementById("activeFolderInput").value = STATE.folder;
+  updateDownloadLink();
+
+  const mSel = document.getElementById("modelSelect");
+  if (mSel && !mSel.options.length) {
+    STATE.models.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m.key;
+      opt.textContent = m.key;
+      if (m.key === BOOT_DATA.default_model) opt.selected = true;
+      mSel.appendChild(opt);
+    });
+    onModelChange();
+  }
+
+  const sSel = document.getElementById("styleSelect");
+  if (sSel && !sSel.options.length) {
+    Object.keys(STATE.styles).forEach(k => {
+      const opt = document.createElement("option");
+      opt.value = k;
+      opt.textContent = k;
+      sSel.appendChild(opt);
+    });
+    onStyleChange();
+  }
+}
+
+function onModelChange() {
+  const val = document.getElementById("modelSelect").value;
+  const found = STATE.models.find(x => x.key === val);
+  document.getElementById("modelDesc").textContent = found ? found.desc : "";
+  if (found && found.sampling && found.sampling.temperature !== undefined) {
+    document.getElementById("temperature").value = found.sampling.temperature;
+  }
+  if (found && found.engine === "pixai_tagger") {
+    document.getElementById("pixaiSettingsBox").classList.add("open");
+  }
+  updateModelDiskBadge();
+}
+
+function updateModelDiskBadge() {
+  const badge = document.getElementById("modelDiskBadge");
+  if (!badge || !STATE.telemetry || !STATE.telemetry.models_inventory) return;
+  const val = document.getElementById("modelSelect").value;
+  const item = STATE.telemetry.models_inventory.find(m => m.key === val);
+  if (!item) {
+    badge.textContent = "";
+    return;
+  }
+  if (item.active_in_vram) {
+    badge.textContent = "🟢 Aktif di VRAM";
+    badge.style.color = "#10b981";
+  } else if (item.downloaded) {
+    badge.textContent = "✅ Tersedia di Disk (" + item.size_gb + " GB)";
+    badge.style.color = "#38bdf8";
+  } else {
+    badge.textContent = "☁️ Perlu Diunduh (~" + item.size_gb + " GB)";
+    badge.style.color = "#f59e0b";
+  }
+}
+
+function onStyleChange() {
+  const val = document.getElementById("styleSelect").value;
+  if (STATE.styles[val]) {
+    document.getElementById("captionPrompt").value = STATE.styles[val];
+  }
+}
+
+function toggleHybridDrawer() {
+  const chk = document.getElementById("hybridTaggerChk");
+  if (chk && chk.checked) {
+    document.getElementById("pixaiSettingsBox").classList.add("open");
+  }
+}
+
+function countWordsAndTokens(str) {
+  const s = (str || "").trim();
+  if (!s) return {words: 0, tokens: 0};
+  const words = s.split(/\s+/).filter(Boolean).length;
+  const commas = (s.match(/,/g) || []).length;
+  const tokens = Math.max(words, Math.round(words * 1.28 + commas * 0.35));
+  return {words, tokens};
+}
+
+function formatTokenBadgeClass(tokens) {
+  const maxTok = parseInt(document.getElementById("maxTokens").value || "220", 10);
+  if (!tokens) return "tok-badge";
+  if (tokens > maxTok) return "tok-badge tok-over";
+  if (tokens >= Math.round(maxTok * 0.85)) return "tok-badge tok-warn";
+  return "tok-badge tok-ok";
+}
+
+async function loadDataset() {
+  initSelectors();
+  try {
+    const res = await fetch("./studio_api/init?folder=" + encodeURIComponent(STATE.folder));
+    const data = await res.json();
+    STATE.items = data.items || [];
+    if (data.telemetry) applyTelemetry(data.telemetry);
+  } catch (e) {
+    console.error("Failed loading dataset:", e);
+  }
+  renderRows();
+}
+
+function changeActiveFolder() {
+  const inp = document.getElementById("activeFolderInput").value.trim();
+  if (!inp) return;
+  STATE.folder = inp;
+  STATE.page = 1;
+  STATE.selected.clear();
+  updateDownloadLink();
+  document.getElementById("mgrSrc").value = inp;
+  loadDataset();
+}
+
+async function refreshTelemetry() {
+  try {
+    const res = await fetch("./studio_api/telemetry");
+    const data = await res.json();
+    applyTelemetry(data);
+  } catch (e) {}
+}
+
+function applyTelemetry(t) {
+  if (!t) return;
+  STATE.telemetry = t;
+  const vDot = document.getElementById("telVlmDot");
+  const vTxt = document.getElementById("telVlmText");
+  const st = t.server_status || "STANDBY";
+  vDot.className = "dot " + (st === "ONLINE" ? "dot-online" : (st === "LOADING" ? "dot-loading" : "dot-standby"));
+  const shortModel = t.active_model ? t.active_model.split("[")[0].trim() : "Standby";
+  vTxt.textContent = "VLM: " + (st === "ONLINE" ? shortModel : st);
+
+  const tDot = document.getElementById("telTaggerDot");
+  const tTxt = document.getElementById("telTaggerText");
+  const tst = t.tagger_status || "STANDBY";
+  tDot.className = "dot " + (tst === "ONLINE" ? "dot-online" : (tst === "LOADING" ? "dot-loading" : "dot-standby"));
+  tTxt.textContent = "PixAI: " + tst;
+
+  document.getElementById("telVramBadge").textContent = "VRAM: " + t.vram_used_gb + " / " + t.vram_total_gb + " GB";
+  document.getElementById("telDiskBadge").textContent = "Disk Free: " + t.disk_free_gb + " GB";
+
+  updateModelDiskBadge();
+  renderInventoryTable(t.models_inventory || []);
+}
+
+function renderInventoryTable(list) {
+  const tbody = document.getElementById("modelsInventoryBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  list.forEach(m => {
+    const tr = document.createElement("tr");
+    const diskBadge = m.downloaded
+      ? '<span style="color:#10b981;font-weight:600;">✅ Terunduh</span>'
+      : '<span style="color:#64748b;">☁️ Belum Diunduh</span>';
+    const vramBadge = m.active_in_vram
+      ? '<span style="color:#38bdf8;font-weight:600;">🟢 Online di VRAM</span>'
+      : '<span style="color:#64748b;">⚪ Standby</span>';
+
+    tr.innerHTML =
+      '<td><b>' + m.key + '</b></td>' +
+      '<td>' + (m.engine === "pixai_tagger" ? "PyTorch EVA02" : "llama-server GGUF") + '</td>' +
+      '<td>' + diskBadge + '</td>' +
+      '<td>' + m.size_gb + ' GB</td>' +
+      '<td>' + vramBadge + '</td>' +
+      '<td style="display:flex; gap:5px;">' +
+        '<button type="button" class="btn btn-xs" data-act="load">⚡ Load</button>' +
+        (m.downloaded ? '<button type="button" class="btn btn-xs btn-danger" data-act="del">🗑️ Hapus Disk</button>' : '') +
+      '</td>';
+
+    const btnLoad = tr.querySelector('[data-act="load"]');
+    if (btnLoad) btnLoad.onclick = () => switchSpecificModel(m.key);
+    const btnDel = tr.querySelector('[data-act="del"]');
+    if (btnDel) btnDel.onclick = () => deleteModelCache(m.key);
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadSelectedModelNow() {
+  const key = document.getElementById("modelSelect").value;
+  await switchSpecificModel(key);
+}
+
+async function switchSpecificModel(model_key) {
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "⏳ Memuat model '" + model_key.split("[")[0].trim() + "' ke VRAM...";
+  try {
+    const res = await fetch("./studio_api/switch_model", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({model_key})
+    });
+    const data = await res.json();
+    if (data.telemetry) applyTelemetry(data.telemetry);
+    banner.textContent = data.ok ? ("✅ " + data.msg) : ("⚠️ " + data.msg);
+  } catch (e) {
+    banner.textContent = "⚠️ Gagal memuat model.";
+  }
+}
+
+async function unloadVramNow(target) {
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "⏳ Mengosongkan VRAM GPU...";
+  const res = await fetch("./studio_api/unload_vram", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({target})
+  });
+  const data = await res.json();
+  if (data.telemetry) applyTelemetry(data.telemetry);
+  banner.textContent = "✅ " + data.msg;
+}
+
+async function deleteModelCache(model_key) {
+  if (!confirm("Hapus file model '" + model_key + "' dari disk Colab?")) return;
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "⏳ Menghapus cache model dari disk...";
+  const res = await fetch("./studio_api/delete_model_cache", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({model_key})
+  });
+  const data = await res.json();
+  if (data.telemetry) applyTelemetry(data.telemetry);
+  banner.textContent = "✅ " + data.msg;
+}
+
+function updateCounts() {
+  const tot = STATE.items.length;
+  const cap = STATE.items.filter(x => x.caption && x.caption.trim()).length;
+  const uncap = tot - cap;
+  const shortCnt = STATE.items.filter(x => x.caption && x.caption.trim() && x.words > 0 && x.words < 15).length;
+  const lowresCnt = STATE.items.filter(x => x.low_res).length;
+
+  document.getElementById("cnt-all").textContent = tot;
+  document.getElementById("cnt-cap").textContent = cap;
+  document.getElementById("cnt-uncap").textContent = uncap;
+  document.getElementById("cnt-short").textContent = shortCnt;
+  document.getElementById("cnt-lowres").textContent = lowresCnt;
+  document.getElementById("selCounter").textContent = STATE.selected.size + " selected";
+}
+
+function setFilter(f) {
+  STATE.filter = f;
+  STATE.page = 1;
+  ["all", "cap", "uncap", "short", "lowres"].forEach(id => {
+    const mapKey = {all: "all", cap: "captioned", uncap: "uncaptioned", short: "short", lowres: "lowres"}[id];
+    const el = document.getElementById("pill-" + id);
+    if (el) el.classList.toggle("active", f === mapKey);
+  });
+  renderRows();
+}
+
+function onSearchInput() {
+  STATE.search = (document.getElementById("searchQuery").value || "").trim().toLowerCase();
+  STATE.page = 1;
+  renderRows();
+}
+
+function getFilteredItems() {
+  let list = STATE.items;
+  if (STATE.filter === "captioned") list = list.filter(x => x.caption && x.caption.trim());
+  else if (STATE.filter === "uncaptioned") list = list.filter(x => !x.caption || !x.caption.trim());
+  else if (STATE.filter === "short") list = list.filter(x => x.caption && x.caption.trim() && x.words > 0 && x.words < 15);
+  else if (STATE.filter === "lowres") list = list.filter(x => x.low_res);
+
+  if (STATE.search) {
+    list = list.filter(x =>
+      x.name.toLowerCase().includes(STATE.search) ||
+      (x.caption || "").toLowerCase().includes(STATE.search)
+    );
+  }
+  return list;
+}
+
+function onPageSizeChange() {
+  STATE.pageSize = parseInt(document.getElementById("pageSizeSelect").value || "30", 10);
+  STATE.page = 1;
+  renderRows();
+}
+
+function changePage(delta) {
+  const filtered = getFilteredItems();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / STATE.pageSize));
+  STATE.page = Math.min(totalPages, Math.max(1, STATE.page + delta));
+  renderRows();
+}
+
+function renderRows() {
+  updateCounts();
+  const container = document.getElementById("rowsContainer");
+  container.innerHTML = "";
+  const filtered = getFilteredItems();
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / STATE.pageSize));
+  if (STATE.page > totalPages) STATE.page = totalPages;
+
+  const startIdx = (STATE.page - 1) * STATE.pageSize;
+  const endIdx = Math.min(totalItems, startIdx + STATE.pageSize);
+  const pageSlice = filtered.slice(startIdx, endIdx);
+
+  document.getElementById("pageRangeInfo").textContent =
+    totalItems ? ("Menampilkan " + (startIdx + 1) + "–" + endIdx + " dari " + totalItems) : "0 item";
+  document.getElementById("pageIndicator").textContent = "Page " + STATE.page + " / " + totalPages;
+  document.getElementById("btnPrevPage").disabled = STATE.page <= 1;
+  document.getElementById("btnNextPage").disabled = STATE.page >= totalPages;
+
+  if (!pageSlice.length) {
+    container.innerHTML =
+      '<div style="text-align:center; padding:55px 20px; color:var(--text-muted); border:1px dashed var(--border); border-radius:10px;">' +
+      'Belum ada gambar yang cocok di kategori/filter ini. Klik tombol <b>📤 Upload Images / .ZIP</b> di kanan atas untuk mengunggah dataset.' +
+      '</div>';
+    return;
+  }
+
+  pageSlice.forEach((it, idx) => {
+    const isSel = STATE.selected.has(it.img_path);
+    const row = document.createElement("div");
+    row.className = "label-row" + (isSel ? " selected" : "");
+
+    const imgUrl = "./studio_api/image?path=" + encodeURIComponent(it.img_path);
+    const resText = (it.width && it.height) ? (it.width + "×" + it.height + (it.low_res ? " ⚠️" : "")) : "";
+    const tokStats = countWordsAndTokens(it.caption);
+    it.words = tokStats.words;
+    it.tokens = tokStats.tokens;
+
+    row.innerHTML =
+      '<div class="row-check-wrap">' +
+        '<input type="checkbox" class="row-check" ' + (isSel ? "checked" : "") + '>' +
+      '</div>' +
+      '<div class="row-thumb-wrap">' +
+        '<img class="row-thumb" src="' + imgUrl + '" loading="lazy" title="Klik untuk membuka Split-View Lightbox Editor">' +
+        (resText ? '<div class="res-badge ' + (it.low_res ? 'low-res' : '') + '">' + resText + '</div>' : '') +
+      '</div>' +
+      '<div class="row-body">' +
+        '<div class="row-meta">' +
+          '<div><b style="color:#e2e8f0;">' + it.name + '</b></div>' +
+          '<div class="row-actions">' +
+            '<span class="' + formatTokenBadgeClass(it.tokens) + ' word-badge">' + it.words + ' words · ~' + it.tokens + ' tok</span>' +
+            '<button type="button" class="btn btn-xs" data-act="gen1" title="Generate caption untuk 1 gambar ini saja (Ctrl+Enter)">⚡ Generate 1 Ini</button>' +
+            '<button type="button" class="btn btn-xs" data-act="tag1" title="Tag 1 gambar ini dengan PixAI Tagger v0.9">🏷️ PixAI Tag</button>' +
+            '<button type="button" class="btn btn-xs" data-act="chat1" title="Kirim gambar ini ke Tab Multimodal Chat">📌 Ke Chat</button>' +
+            '<button type="button" class="btn btn-xs btn-danger" data-act="del1" title="Hapus gambar & caption ini">🗑️</button>' +
+          '</div>' +
+        '</div>' +
+        '<textarea class="row-textarea" placeholder="- belum ada caption (klik ⚡ Generate 1 Ini atau ketik manual) -"></textarea>' +
+      '</div>';
+
+    const ta = row.querySelector(".row-textarea");
+    ta.value = it.caption || "";
+
+    const chk = row.querySelector(".row-check");
+    chk.addEventListener("change", () => {
+      if (chk.checked) STATE.selected.add(it.img_path);
+      else STATE.selected.delete(it.img_path);
+      row.classList.toggle("selected", chk.checked);
+      updateCounts();
+    });
+
+    const thumb = row.querySelector(".row-thumb");
+    thumb.addEventListener("click", () => openLightbox(it.img_path));
+
+    const badge = row.querySelector(".word-badge");
+    let saveTimer = null;
+    ta.addEventListener("input", () => {
+      it.caption = ta.value;
+      const st = countWordsAndTokens(ta.value);
+      it.words = st.words;
+      it.tokens = st.tokens;
+      badge.className = formatTokenBadgeClass(st.tokens) + " word-badge";
+      badge.textContent = st.words + " words · ~" + st.tokens + " tok · saving...";
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        await fetch("./studio_api/save_caption", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({img_path: it.img_path, caption: ta.value})
+        });
+        badge.textContent = st.words + " words · ~" + st.tokens + " tok · ✓";
+        updateCounts();
+      }, 400);
+    });
+
+    // Keyboard shortcuts inside row textarea: Ctrl+Enter = Generate 1 Ini, Alt+Up/Down = Navigate rows
+    ta.addEventListener("keydown", (ev) => {
+      if (ev.ctrlKey && ev.key === "Enter") {
+        ev.preventDefault();
+        generateSingleRowItem(it);
+      } else if (ev.altKey && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
+        ev.preventDefault();
+        const allTas = Array.from(container.querySelectorAll(".row-textarea"));
+        const targetTa = allTas[idx + (ev.key === "ArrowDown" ? 1 : -1)];
+        if (targetTa) targetTa.focus();
+      }
+    });
+
+    row.querySelector('[data-act="gen1"]').onclick = () => generateSingleRowItem(it);
+    row.querySelector('[data-act="tag1"]').onclick = () => tagSingleRowItem(it);
+    row.querySelector('[data-act="chat1"]').onclick = () => sendItemToChatTab(it);
+    row.querySelector('[data-act="del1"]').onclick = () => deleteSingleRowItem(it);
+
+    it._domRow = row;
+    it._domTa = ta;
+    it._domBadge = badge;
+    container.appendChild(row);
+  });
+}
+
+function selectPageRows(flag) {
+  const filtered = getFilteredItems();
+  const startIdx = (STATE.page - 1) * STATE.pageSize;
+  const slice = filtered.slice(startIdx, startIdx + STATE.pageSize);
+  slice.forEach(it => {
+    if (flag) STATE.selected.add(it.img_path);
+    else STATE.selected.delete(it.img_path);
+  });
+  renderRows();
+}
+
+function selectAllFilteredRows(flag) {
+  if (!flag) {
+    STATE.selected.clear();
+  } else {
+    getFilteredItems().forEach(it => STATE.selected.add(it.img_path));
+  }
+  renderRows();
+}
+
+function toggleUploadDrawer() {
+  document.getElementById("uploadDrawer").classList.toggle("open");
+}
+
+function toggleDrawer(id) {
+  document.getElementById(id).classList.toggle("open");
+}
+
+async function uploadFilesNow() {
+  const inp = document.getElementById("fileUploadInput");
+  if (!inp.files.length) return alert("Pilih file gambar atau .zip terlebih dahulu!");
+  const fd = new FormData();
+  fd.append("folder", STATE.folder);
+  for (const f of inp.files) fd.append("files", f);
+
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "⏳ Mengunggah, memverifikasi gambar & mengekstrak file...";
+  const res = await fetch("./studio_api/upload", {method: "POST", body: fd});
+  const data = await res.json();
+  STATE.items = data.items || [];
+  inp.value = "";
+  document.getElementById("uploadDrawer").classList.remove("open");
+  banner.textContent = "✅ Ditambahkan " + data.added + " file" + (data.corrupt ? (" (" + data.corrupt + " file korup ditolak)") : "!");
+  renderRows();
+}
+
+function getGenerationPayload(img_path) {
+  return {
+    img_path,
+    model_key: document.getElementById("modelSelect").value,
+    sys_prompt: document.getElementById("captionPrompt").value,
+    max_tokens: parseInt(document.getElementById("maxTokens").value || "220", 10),
+    temperature: parseFloat(document.getElementById("temperature").value || "0.2"),
+    subject_hint: document.getElementById("subjectHintInput").value,
+    hybrid_tagger_enabled: document.getElementById("hybridTaggerChk").checked,
+    hybrid_mode: document.getElementById("hybridModeSelect").value,
+    general_threshold: parseFloat(document.getElementById("pixaiGenTh").value || "0.30"),
+    character_threshold: parseFloat(document.getElementById("pixaiCharTh").value || "0.75"),
+    replace_underscore: document.getElementById("pixaiNoUnderscore").checked,
+    escape_parens: document.getElementById("pixaiEscapeParen").checked,
+    exclude_tags: document.getElementById("pixaiExcludeTags").value
+  };
+}
+
+function applyCaptionUpdateToItem(it, data) {
+  if (!data || !data.caption) return;
+  it.caption = data.caption;
+  it.words = data.words;
+  it.tokens = data.tokens;
+  if (it._domTa) it._domTa.value = data.caption;
+  if (it._domBadge) {
+    it._domBadge.className = formatTokenBadgeClass(data.tokens) + " word-badge";
+    it._domBadge.textContent = data.words + " words · ~" + data.tokens + " tok · ✓";
+  }
+  if (STATE.lightboxImgPath === it.img_path) {
+    document.getElementById("lbTextarea").value = data.caption;
+    if (data.tagger_meta) renderLightboxPixaiMeta(data.tagger_meta);
+  }
+  updateCounts();
+}
+
+async function generateSingleRowItem(it) {
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "⚡ Menganalisis " + it.name + "...";
+  if (it._domBadge) it._domBadge.textContent = "⏳ generating...";
+  try {
+    const res = await fetch("./studio_api/generate_one", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(getGenerationPayload(it.img_path))
+    });
+    const data = await res.json();
+    if (data.ok && data.caption) {
+      applyCaptionUpdateToItem(it, data);
+      banner.textContent = "✅ Selesai: " + it.name;
+    } else {
+      banner.textContent = "⚠️ Gagal men-generate caption untuk " + it.name;
+    }
+    refreshTelemetry();
+  } catch (e) {
+    banner.textContent = "⚠️ Error koneksi saat memproses " + it.name;
+  }
+}
+
+async function tagSingleRowItem(it) {
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "🏷️ PixAI Tagger v0.9 memindai " + it.name + "...";
+  if (it._domBadge) it._domBadge.textContent = "⏳ tagging...";
+  try {
+    const res = await fetch("./studio_api/tag_one", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        img_path: it.img_path,
+        save_to_file: true,
+        general_threshold: parseFloat(document.getElementById("pixaiGenTh").value || "0.30"),
+        character_threshold: parseFloat(document.getElementById("pixaiCharTh").value || "0.75"),
+        replace_underscore: document.getElementById("pixaiNoUnderscore").checked,
+        escape_parens: document.getElementById("pixaiEscapeParen").checked,
+        exclude_tags: document.getElementById("pixaiExcludeTags").value
+      })
+    });
+    const data = await res.json();
+    if (data.ok && data.caption) {
+      applyCaptionUpdateToItem(it, data);
+      banner.textContent = "✅ PixAI Tag selesai: " + it.name;
+    }
+    refreshTelemetry();
+  } catch (e) {
+    banner.textContent = "⚠️ Gagal menjalankan PixAI Tagger.";
+  }
+}
+
+async function deleteSingleRowItem(it) {
+  if (!confirm("Hapus gambar '" + it.name + "' beserta file .txt-nya?")) return;
+  const res = await fetch("./studio_api/delete_item", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({img_path: it.img_path, folder: STATE.folder})
+  });
+  const data = await res.json();
+  STATE.selected.delete(it.img_path);
+  STATE.items = data.items || [];
+  document.getElementById("statusBanner").textContent = "🗑️ Dihapus: " + it.name;
+  renderRows();
+}
+
+async function sendItemToChatTab(it) {
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "📌 Mengirim " + it.name + " ke Tab Multimodal Chat...";
+  const res = await fetch("./studio_api/image?path=" + encodeURIComponent(it.img_path) + "&as_data_uri=1");
+  const data = await res.json();
+  if (data.ok && data.data_uri) {
+    STATE.chatImageDataUri = data.data_uri;
+    document.getElementById("chatImgPreview").src = data.data_uri;
+    document.getElementById("chatImgName").textContent = it.name;
+    document.getElementById("chatImgPreviewBar").style.display = "flex";
+    closeLightbox();
+    switchTab("chat");
+    document.getElementById("chatInput").focus();
+    banner.textContent = "Ready";
+  }
+}
+
+async function generateSelectedCaptions() {
+  const btn = document.getElementById("btnGenerateBatch");
+  if (STATE.isGenerating) {
+    STATE.stopRequested = true;
+    btn.textContent = "⏹️ Menghentikan...";
+    return;
+  }
+
+  let targets = STATE.items.filter(x => STATE.selected.has(x.img_path));
+  if (!targets.length) return alert("Centang minimal 1 gambar (atau klik Select All / Select Page) terlebih dahulu!");
+
+  const overwrite = document.getElementById("overwriteChk").checked;
+  if (!overwrite) targets = targets.filter(x => !x.caption || !x.caption.trim());
+  if (!targets.length) return alert("Semua gambar yang dipilih sudah memiliki caption!");
+
+  STATE.isGenerating = true;
+  STATE.stopRequested = false;
+  const banner = document.getElementById("statusBanner");
+
+  for (let i = 0; i < targets.length; i++) {
+    if (STATE.stopRequested) break;
+    const it = targets[i];
+    btn.textContent = "⏹️ Stop (" + (i + 1) + "/" + targets.length + ")";
+    banner.textContent = "⚡ [" + (i + 1) + "/" + targets.length + "] Menganalisis " + it.name + "...";
+    try {
+      const res = await fetch("./studio_api/generate_one", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(getGenerationPayload(it.img_path))
+      });
+      const data = await res.json();
+      if (data.ok && data.caption) applyCaptionUpdateToItem(it, data);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  STATE.isGenerating = false;
+  btn.textContent = "✨ Generate (Selected)";
+  banner.textContent = STATE.stopRequested ? "⏹️ Proses batch dihentikan." : "✅ Selesai memproses " + targets.length + " gambar!";
+  refreshTelemetry();
+}
+
+async function tagSelectedWithPixAI() {
+  const btn = document.getElementById("btnTagBatch");
+  if (STATE.isGenerating) {
+    STATE.stopRequested = true;
+    return;
+  }
+  let targets = STATE.items.filter(x => STATE.selected.has(x.img_path));
+  if (!targets.length) return alert("Centang minimal 1 gambar terlebih dahulu!");
+
+  const overwrite = document.getElementById("overwriteChk").checked;
+  if (!overwrite) targets = targets.filter(x => !x.caption || !x.caption.trim());
+  if (!targets.length) return alert("Semua gambar terpilih sudah punya caption!");
+
+  STATE.isGenerating = true;
+  STATE.stopRequested = false;
+  const banner = document.getElementById("statusBanner");
+
+  for (let i = 0; i < targets.length; i++) {
+    if (STATE.stopRequested) break;
+    const it = targets[i];
+    btn.textContent = "⏹️ Stop (" + (i + 1) + "/" + targets.length + ")";
+    banner.textContent = "🏷️ [" + (i + 1) + "/" + targets.length + "] PixAI Tagging " + it.name + "...";
+    try {
+      const res = await fetch("./studio_api/tag_one", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          img_path: it.img_path,
+          save_to_file: true,
+          general_threshold: parseFloat(document.getElementById("pixaiGenTh").value || "0.30"),
+          character_threshold: parseFloat(document.getElementById("pixaiCharTh").value || "0.75"),
+          replace_underscore: document.getElementById("pixaiNoUnderscore").checked,
+          escape_parens: document.getElementById("pixaiEscapeParen").checked,
+          exclude_tags: document.getElementById("pixaiExcludeTags").value
+        })
+      });
+      const data = await res.json();
+      if (data.ok && data.caption) applyCaptionUpdateToItem(it, data);
+    } catch (e) {}
+  }
+
+  STATE.isGenerating = false;
+  btn.textContent = "🏷️ PixAI Tag (Selected)";
+  banner.textContent = "✅ Selesai PixAI Tagging " + targets.length + " gambar!";
+  refreshTelemetry();
+}
+
+async function runBulkEdit(action_type) {
+  const scope = document.getElementById("bulkTargetScope").value;
+  const selList = scope === "selected" ? Array.from(STATE.selected) : null;
+  if (action_type === "apply" && scope === "selected" && (!selList || !selList.length)) {
+    return alert("Centang gambar yang ingin di-edit terlebih dahulu, atau ubah Target File ke 'Semua File (.txt)'!");
+  }
+  const banner = document.getElementById("statusBanner");
+  banner.textContent = "⏳ Memproses bulk edit file .txt...";
+  const res = await fetch("./studio_api/bulk_edit", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      action_type,
+      folder: STATE.folder,
+      trigger: document.getElementById("trigWord").value,
+      pos: document.getElementById("trigPos").value,
+      find: document.getElementById("findStr").value,
+      replace: document.getElementById("repStr").value,
+      lowercase: document.getElementById("trigLower").checked,
+      skip_dup: document.getElementById("trigSkip").checked,
+      clean_commas: true,
+      backup: true,
+      selected_img_paths: selList
+    })
+  });
+  const data = await res.json();
+  STATE.items = data.items || [];
+  banner.textContent = "✅ " + data.msg;
+  renderRows();
+}
+
+/* ==================== SPLIT-VIEW LIGHTBOX EDITOR ==================== */
+function openLightbox(img_path) {
+  const it = STATE.items.find(x => x.img_path === img_path);
+  if (!it) return;
+  STATE.lightboxImgPath = img_path;
+  document.getElementById("lightboxImg").src = "./studio_api/image?path=" + encodeURIComponent(img_path);
+  document.getElementById("lbFileName").textContent = it.name;
+  document.getElementById("lbMetaInfo").textContent =
+    "Resolusi: " + (it.width || "?") + "×" + (it.height || "?") + " px · " + it.words + " words (~" + it.tokens + " tokens)";
+  const lbTa = document.getElementById("lbTextarea");
+  lbTa.value = it.caption || "";
+  document.getElementById("lbPixaiInspector").style.display = "none";
+  document.getElementById("lightbox").classList.add("open");
+
+  lbTa.oninput = () => {
+    it.caption = lbTa.value;
+    const st = countWordsAndTokens(lbTa.value);
+    it.words = st.words;
+    it.tokens = st.tokens;
+    document.getElementById("lbMetaInfo").textContent =
+      "Resolusi: " + (it.width || "?") + "×" + (it.height || "?") + " px · " + st.words + " words (~" + st.tokens + " tokens)";
+    if (it._domTa) it._domTa.value = lbTa.value;
+    fetch("./studio_api/save_caption", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({img_path: it.img_path, caption: lbTa.value})
+    });
+    updateCounts();
+  };
+}
+
+function closeLightbox() {
+  STATE.lightboxImgPath = null;
+  document.getElementById("lightbox").classList.remove("open");
+}
+
+function stepLightbox(delta) {
+  const list = getFilteredItems();
+  const idx = list.findIndex(x => x.img_path === STATE.lightboxImgPath);
+  if (idx === -1) return;
+  const nextIt = list[idx + delta];
+  if (nextIt) openLightbox(nextIt.img_path);
+}
+
+async function lightboxGenerateOne() {
+  const it = STATE.items.find(x => x.img_path === STATE.lightboxImgPath);
+  if (it) await generateSingleRowItem(it);
+}
+
+async function lightboxTagOne() {
+  const it = STATE.items.find(x => x.img_path === STATE.lightboxImgPath);
+  if (it) await tagSingleRowItem(it);
+}
+
+function lightboxSendToChat() {
+  const it = STATE.items.find(x => x.img_path === STATE.lightboxImgPath);
+  if (it) sendItemToChatTab(it);
+}
+
+function renderLightboxPixaiMeta(meta) {
+  const box = document.getElementById("lbPixaiInspector");
+  if (!box || !meta) return;
+  box.style.display = "block";
+  const chars = (meta.character_tags || []).join(", ") || "-";
+  const ips = (meta.ip_tags || []).join(", ") || "-";
+  const gens = (meta.general_tags || []).slice(0, 25).join(", ") || "-";
+  box.innerHTML =
+    "<div><b style='color:#c4b5fd;'>Character:</b> " + chars + "</div>" +
+    "<div style='margin-top:3px;'><b style='color:#38bdf8;'>Series / IP:</b> " + ips + "</div>" +
+    "<div style='margin-top:3px;'><b style='color:#94a3b8;'>Top General:</b> " + gens + "</div>";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && STATE.lightboxImgPath) closeLightbox();
+});
+
+/* ==================== TAB 2: MULTIMODAL CHAT ==================== */
+function onChatImagePicked(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    STATE.chatImageDataUri = reader.result;
+    document.getElementById("chatImgPreview").src = reader.result;
+    document.getElementById("chatImgName").textContent = file.name;
+    document.getElementById("chatImgPreviewBar").style.display = "flex";
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearChatImage() {
+  STATE.chatImageDataUri = null;
+  document.getElementById("chatImgInput").value = "";
+  document.getElementById("chatImgPreviewBar").style.display = "none";
+}
+
+async function sendChatMessage() {
+  const inp = document.getElementById("chatInput");
+  const text = inp.value.trim();
+  if (!text && !STATE.chatImageDataUri) return;
+
+  const box = document.getElementById("chatMessages");
+  const sentImg = STATE.chatImageDataUri;
+
+  const uDiv = document.createElement("div");
+  uDiv.className = "msg msg-user";
+  if (sentImg) {
+    const thumb = document.createElement("img");
+    thumb.src = sentImg;
+    thumb.style.cssText = "max-height:140px; border-radius:7px; display:block; margin-bottom:6px;";
+    uDiv.appendChild(thumb);
+  }
+  const uTxt = document.createElement("div");
+  uTxt.textContent = text || "Describe this image in detail.";
+  uDiv.appendChild(uTxt);
+  box.appendChild(uDiv);
+
+  const aiDiv = document.createElement("div");
+  aiDiv.className = "msg msg-ai";
+  aiDiv.textContent = "⏳ Sedang menganalisis & menyusun respons...";
+  box.appendChild(aiDiv);
+  box.scrollTop = box.scrollHeight;
+
+  inp.value = "";
+  clearChatImage();
+
+  const res = await fetch("./studio_api/chat", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      model_key: document.getElementById("modelSelect").value,
+      sys_prompt: document.getElementById("chatSysPrompt").value,
+      history: STATE.chatHistory,
+      message: text,
+      image_data_uri: sentImg,
+      temperature: parseFloat(document.getElementById("chatTemp").value || "0.7"),
+      max_tokens: parseInt(document.getElementById("chatMaxTok").value || "768", 10),
+      enable_thinking: document.getElementById("chatThinkingChk").checked
+    })
+  });
+  const data = await res.json();
+  aiDiv.innerHTML = "";
+
+  if (data.thinking) {
+    const det = document.createElement("details");
+    det.style.cssText = "margin-bottom:8px; font-size:11.5px; color:#94a3b8; background:#0c0f17; padding:6px 10px; border-radius:6px;";
+    const sum = document.createElement("summary");
+    sum.style.cursor = "pointer";
+    sum.textContent = "🧠 Lihat Proses Penalaran (Thinking Trace)";
+    const pre = document.createElement("div");
+    pre.style.marginTop = "6px";
+    pre.textContent = data.thinking;
+    det.appendChild(sum);
+    det.appendChild(pre);
+    aiDiv.appendChild(det);
+  }
+
+  const bodyEl = document.createElement("div");
+  bodyEl.textContent = data.reply || "";
+  aiDiv.appendChild(bodyEl);
+
+  const tb = document.createElement("div");
+  tb.className = "msg-toolbar";
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.className = "btn btn-xs";
+  copyBtn.textContent = "📋 Copy Prompt / Jawaban";
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(data.reply || "");
+    copyBtn.textContent = "✓ Copied!";
+    setTimeout(() => { copyBtn.textContent = "📋 Copy Prompt / Jawaban"; }, 1500);
+  };
+  tb.appendChild(copyBtn);
+  aiDiv.appendChild(tb);
+
+  // Store image_data_uri inside chatHistory so follow-up questions continue to see the image!
+  STATE.chatHistory.push({
+    role: "user",
+    content: text || "Describe this image.",
+    image_data_uri: sentImg || null
+  });
+  STATE.chatHistory.push({
+    role: "assistant",
+    content: data.reply || ""
+  });
+  box.scrollTop = box.scrollHeight;
+  refreshTelemetry();
+}
+
+function clearChatHistory() {
+  STATE.chatHistory = [];
+  document.getElementById("chatMessages").innerHTML =
+    '<div class="msg msg-ai">Riwayat chat dibersihkan. Silakan unggah gambar baru atau kirim gambar dari Tab 1.</div>';
+}
+
+/* ==================== TAB 3: SMART FILE MANAGER & DRIVE PRESETS ==================== */
+function onManagerActionChange() {
+  const act = document.getElementById("mgrAction").value;
+  if (act === "Export to Google Drive") {
+    document.getElementById("mgrSrc").value = STATE.folder;
+    document.getElementById("mgrDst").value = "/content/drive/MyDrive/vlm_dataset_backup";
+  } else if (act === "Import from Google Drive") {
+    document.getElementById("mgrSrc").value = "/content/drive/MyDrive/vlm_dataset_backup";
+    document.getElementById("mgrDst").value = STATE.folder;
+  }
+}
+
+function quickDrivePreset(mode) {
+  const sel = document.getElementById("mgrAction");
+  if (mode === "export") {
+    sel.value = "Export to Google Drive";
+  } else {
+    sel.value = "Import from Google Drive";
+  }
+  onManagerActionChange();
+  runSmartManager();
+}
+
+async function runSmartManager() {
+  const logEl = document.getElementById("mgrLog");
+  logEl.textContent = "⏳ Menjalankan aksi...";
+  const res = await fetch("./studio_api/manager", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      action: document.getElementById("mgrAction").value,
+      source_path: document.getElementById("mgrSrc").value,
+      destination_path: document.getElementById("mgrDst").value,
+      rename_prefix: document.getElementById("mgrPrefix").value,
+      active_folder: STATE.folder
+    })
+  });
+  const data = await res.json();
+  logEl.textContent = data.log;
+  if (data.items) {
+    STATE.items = data.items;
+    renderRows();
+  }
+}
+
+initSelectors();
+loadDataset();
+setInterval(refreshTelemetry, 12000);
+</script>
+</body>
+</html>
